@@ -1,5 +1,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
+import { initializeApp } from "firebase/app";
+import { getDatabase, ref, set, onValue } from "firebase/database";
 import { 
   LayoutDashboard, 
   Briefcase, 
@@ -30,8 +32,40 @@ import {
   AlertTriangle,
   Users as UsersIcon,
   UserPlus,
-  Paperclip
+  Paperclip,
+  Cloud,
+  CloudOff
 } from 'lucide-react';
+
+// --- ☁️ CONFIGURACIÓN DE NUBE (FIREBASE) ---
+const FIREBASE_CONFIG: any = {
+  apiKey: "AIzaSyBBXtJzCyfC9ntnDGgtT67_havmTeP0BKI",
+  authDomain: "apc-odt-system.firebaseapp.com",
+  // Esta URL es necesaria para la base de datos en tiempo real
+  databaseURL: "https://apc-odt-system-default-rtdb.firebaseio.com",
+  projectId: "apc-odt-system",
+  storageBucket: "apc-odt-system.firebasestorage.app",
+  messagingSenderId: "50522458460",
+  appId: "1:50522458460:web:152cc84f4495765c61d999",
+  measurementId: "G-MCKFVRLRJ3"
+};
+
+// --- Inicialización Condicional de Firebase ---
+let db: any = null;
+let isCloudEnabled = false;
+
+try {
+  if (FIREBASE_CONFIG.apiKey) {
+    const app = initializeApp(FIREBASE_CONFIG);
+    db = getDatabase(app);
+    isCloudEnabled = true;
+    console.log("☁️ Sistema conectado a la nube APC Enterprise");
+  } else {
+    console.log("💾 Sistema operando en modo local (LocalStorage)");
+  }
+} catch (e) {
+  console.error("Error conectando a Firebase:", e);
+}
 
 // --- Configuración de Colores Corporativos ---
 const COLORS = {
@@ -128,14 +162,10 @@ const INITIAL_USERS: User[] = [
 ];
 
 export default function App() {
+  // --- Estados ---
   const [users, setUsers] = useState<User[]>(() => {
     const saved = localStorage.getItem(USERS_STORAGE_KEY);
     return saved ? JSON.parse(saved) : INITIAL_USERS;
-  });
-
-  const [currentUser, setCurrentUser] = useState<User | null>(() => {
-    const saved = localStorage.getItem('apc_session');
-    return saved ? JSON.parse(saved) : null;
   });
 
   const [projects, setProjects] = useState<Project[]>(() => {
@@ -143,23 +173,77 @@ export default function App() {
     return saved ? JSON.parse(saved) : [];
   });
 
+  const [currentUser, setCurrentUser] = useState<User | null>(() => {
+    const saved = localStorage.getItem('apc_session');
+    return saved ? JSON.parse(saved) : null;
+  });
+
   const [view, setView] = useState<'dashboard' | 'proyectos' | 'correccion' | 'historico' | 'reportes' | 'usuarios'>('dashboard');
-  const [searchTerm, setSearchTerm] = useState('');
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
-  const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
-  const [cancelReason, setCancelReason] = useState('');
   const [selectedAreas, setSelectedAreas] = useState<string[]>([]);
   const [loginForm, setLoginForm] = useState({ username: '', password: '' });
   
-  // States para nuevos comentarios y enlaces en el detalle
+  // Inputs de detalle
   const [newComment, setNewComment] = useState('');
   const [newLinkUrl, setNewLinkUrl] = useState('');
   const [newLinkDesc, setNewLinkDesc] = useState('');
 
-  useEffect(() => { localStorage.setItem(STORAGE_KEY, JSON.stringify(projects)); }, [projects]);
-  useEffect(() => { localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(users)); }, [users]);
+  // --- Sincronización (Local vs Cloud) ---
+  const syncProjects = (newData: Project[]) => {
+    if (isCloudEnabled && db) {
+      set(ref(db, 'projects'), newData);
+    } else {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(newData));
+    }
+    setProjects(newData); // Optimistic update
+  };
+
+  const syncUsers = (newData: User[]) => {
+    if (isCloudEnabled && db) {
+      set(ref(db, 'users'), newData);
+    } else {
+      localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(newData));
+    }
+    setUsers(newData);
+  };
+
+  // --- Listeners de Firebase ---
+  useEffect(() => {
+    if (isCloudEnabled && db) {
+      // Escuchar cambios en Proyectos
+      const unsubProjects = onValue(ref(db, 'projects'), (snapshot) => {
+        const data = snapshot.val();
+        if (data) setProjects(data);
+      });
+
+      // Escuchar cambios en Usuarios
+      const unsubUsers = onValue(ref(db, 'users'), (snapshot) => {
+        const data = snapshot.val();
+        if (data) setUsers(data);
+      });
+
+      return () => {
+        unsubProjects();
+        unsubUsers();
+      };
+    }
+  }, []);
+
+  // --- Persistencia Local (Fallback) ---
+  useEffect(() => {
+    if (!isCloudEnabled) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(projects));
+    }
+  }, [projects]);
+
+  useEffect(() => {
+    if (!isCloudEnabled) {
+      localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(users));
+    }
+  }, [users]);
+
 
   // --- Sistema de Autenticación ---
   const handleLogin = (e: React.FormEvent) => {
@@ -193,14 +277,14 @@ export default function App() {
     };
 
     if (users.find(u => u.username === newUser.username)) return alert("El nombre de usuario ya existe.");
-    setUsers([...users, newUser]);
+    syncUsers([...users, newUser]);
     setIsUserModalOpen(false);
   };
 
   const deleteUser = (id: string) => {
     if (id === currentUser?.id) return alert("No puedes eliminar tu propio usuario.");
     if (window.confirm("¿Seguro que deseas eliminar este usuario?")) {
-      setUsers(users.filter(u => u.id !== id));
+      syncUsers(users.filter(u => u.id !== id));
     }
   };
 
@@ -236,7 +320,7 @@ export default function App() {
       historial: [{ action: "ODT Creada", user: currentUser?.name, timestamp: new Date().toLocaleString() }]
     };
 
-    setProjects([newODT, ...projects]);
+    syncProjects([newODT, ...projects]);
     setIsModalOpen(false);
     setSelectedAreas([]);
     setView('proyectos');
@@ -251,7 +335,7 @@ export default function App() {
       text: newComment,
       timestamp: new Date().toLocaleString()
     };
-    setProjects(projects.map(p => p.id === selectedProject.id ? { ...p, comentarios: [comment, ...p.comentarios] } : p));
+    syncProjects(projects.map(p => p.id === selectedProject.id ? { ...p, comentarios: [comment, ...p.comentarios] } : p));
     setNewComment('');
   };
 
@@ -264,7 +348,7 @@ export default function App() {
       description: newLinkDesc || 'Material cargado',
       timestamp: new Date().toLocaleString()
     };
-    setProjects(projects.map(p => p.id === selectedProject.id ? { ...p, enlaces: [link, ...p.enlaces] } : p));
+    syncProjects(projects.map(p => p.id === selectedProject.id ? { ...p, enlaces: [link, ...p.enlaces] } : p));
     setNewLinkUrl('');
     setNewLinkDesc('');
   };
@@ -276,7 +360,7 @@ export default function App() {
       alert("⚠️ BLOQUEO ISO: Se requiere el Visto Bueno de Corrección.");
       return;
     }
-    setProjects(projects.map(p => {
+    syncProjects(projects.map(p => {
       if (p.id === id) {
         const flow = getProjectFlow(p);
         const idx = flow.indexOf(p.etapa_actual);
@@ -290,15 +374,24 @@ export default function App() {
   };
 
   const handleQA = (id: string, ok: boolean, notes: string) => {
-    setProjects(projects.map(p => p.id === id ? { ...p, correccion_ok: ok, correccion_notas: notes } : p));
+    syncProjects(projects.map(p => p.id === id ? { ...p, correccion_ok: ok, correccion_notas: notes } : p));
     setSelectedProject(null);
   };
 
   const productionAreas = ['Creativos', 'Médicos', 'Diseño', 'Tráfico', 'Audio y Video', 'Digital'];
 
+  // Sincronizar selectedProject con el estado global de projects (para updates en tiempo real)
+  const activeProject = selectedProject ? projects.find(p => p.id === selectedProject.id) : null;
+
   if (!currentUser) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#0f172a] p-6 relative overflow-hidden font-sans">
+        <div className="absolute top-4 right-4 flex items-center gap-2 px-4 py-2 bg-slate-800 rounded-full border border-slate-700">
+          {isCloudEnabled ? <Cloud size={14} className="text-green-400"/> : <CloudOff size={14} className="text-slate-500"/>}
+          <span className={`text-[10px] font-black uppercase tracking-widest ${isCloudEnabled ? 'text-green-400' : 'text-slate-500'}`}>
+            {isCloudEnabled ? 'Sincronizado' : 'Modo Local'}
+          </span>
+        </div>
         <form onSubmit={handleLogin} className="w-full max-w-md bg-white rounded-[40px] p-12 shadow-2xl relative z-10">
           <div className="flex flex-col items-center mb-10">
             <div className="w-16 h-16 rounded-2xl flex items-center justify-center mb-4 text-white font-black text-2xl" style={{ background: `linear-gradient(135deg, ${COLORS.teal}, ${COLORS.pink})` }}>APC</div>
@@ -315,9 +408,6 @@ export default function App() {
     );
   }
 
-  // Sincronizar selectedProject con el estado global de projects
-  const activeProject = selectedProject ? projects.find(p => p.id === selectedProject.id) : null;
-
   return (
     <div className="flex h-screen bg-slate-50 text-slate-900 font-sans overflow-hidden">
       {/* Sidebar */}
@@ -333,7 +423,17 @@ export default function App() {
           <MenuBtn active={view === 'historico'} onClick={() => setView('historico')} icon={<History size={18}/>} label="Archivo" />
           {currentUser.role === 'Admin' && <MenuBtn active={view === 'usuarios'} onClick={() => setView('usuarios')} icon={<UsersIcon size={18}/>} label="Usuarios" />}
         </nav>
-        <button onClick={handleLogout} className="mt-auto py-4 bg-slate-900 text-white rounded-2xl text-[9px] font-black uppercase flex items-center justify-center gap-2"><LogOut size={12}/> Cerrar Sesión</button>
+        <div className="mt-auto flex flex-col gap-4">
+           {/* Indicador de Estado de Conexión */}
+           <div className={`px-4 py-3 rounded-xl border flex items-center gap-3 ${isCloudEnabled ? 'bg-green-50 border-green-200 text-green-700' : 'bg-slate-50 border-slate-200 text-slate-400'}`}>
+              {isCloudEnabled ? <Cloud size={16}/> : <CloudOff size={16}/>}
+              <div>
+                <p className="text-[9px] font-black uppercase tracking-widest">{isCloudEnabled ? 'ONLINE' : 'OFFLINE'}</p>
+                <p className="text-[9px] opacity-70">{isCloudEnabled ? 'Sync en tiempo real' : 'Solo local'}</p>
+              </div>
+           </div>
+           <button onClick={handleLogout} className="py-4 bg-slate-900 text-white rounded-2xl text-[9px] font-black uppercase flex items-center justify-center gap-2"><LogOut size={12}/> Cerrar Sesión</button>
+        </div>
       </aside>
 
       <main className="flex-1 flex flex-col min-w-0">
@@ -428,7 +528,7 @@ export default function App() {
                                 className="w-full bg-white/5 border border-white/10 rounded-3xl p-6 text-sm text-white outline-none mb-6 min-h-[80px]"
                                 placeholder="Notas de validación..."
                                 value={activeProject.correccion_notas}
-                                onChange={(e) => setProjects(projects.map(p => p.id === activeProject.id ? { ...p, correccion_notas: e.target.value } : p))}
+                                onChange={(e) => syncProjects(projects.map(p => p.id === activeProject.id ? { ...p, correccion_notas: e.target.value } : p))}
                              />
                              <div className="flex gap-4">
                                 <button onClick={() => handleQA(activeProject.id, true, activeProject.correccion_notas)} className="flex-1 py-4 bg-teal-600 rounded-2xl font-black text-[10px] uppercase">APROBAR QA ✓</button>
