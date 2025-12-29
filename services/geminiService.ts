@@ -99,7 +99,8 @@ export const generateNextSpinner = async (
         systemInstruction,
         responseMimeType: "application/json",
         responseSchema: responseSchema,
-        thinkingConfig: { thinkingLevel: 'MINIMAL' }
+        // Fix: Use thinkingBudget instead of thinkingLevel. Setting to 0 disables reasoning for lower latency.
+        thinkingConfig: { thinkingBudget: 0 }
       },
     });
 
