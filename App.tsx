@@ -34,7 +34,9 @@ import {
   UserPlus,
   Paperclip,
   Cloud,
-  CloudOff
+  CloudOff,
+  RefreshCw,
+  UploadCloud
 } from 'lucide-react';
 
 // --- ☁️ CONFIGURACIÓN DE NUBE (FIREBASE) ---
@@ -184,6 +186,7 @@ export default function App() {
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
   const [selectedAreas, setSelectedAreas] = useState<string[]>([]);
   const [loginForm, setLoginForm] = useState({ username: '', password: '' });
+  const [dbError, setDbError] = useState<string | null>(null);
   
   // Inputs de detalle
   const [newComment, setNewComment] = useState('');
@@ -193,7 +196,7 @@ export default function App() {
   // --- Sincronización (Local vs Cloud) ---
   const syncProjects = (newData: Project[]) => {
     if (isCloudEnabled && db) {
-      set(ref(db, 'projects'), newData);
+      set(ref(db, 'projects'), newData).catch(err => setDbError(err.message));
     } else {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(newData));
     }
@@ -202,11 +205,26 @@ export default function App() {
 
   const syncUsers = (newData: User[]) => {
     if (isCloudEnabled && db) {
-      set(ref(db, 'users'), newData);
+      set(ref(db, 'users'), newData).then(() => {
+         alert("✅ Usuarios sincronizados con la nube correctamente.");
+      }).catch(err => {
+         alert("❌ Error al sincronizar: " + err.message);
+         setDbError(err.message);
+      });
     } else {
       localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(newData));
     }
     setUsers(newData);
+  };
+
+  // Función de rescate: Forzar subida de datos locales a la nube
+  const forcePushToCloud = () => {
+    if (!isCloudEnabled || !db) return alert("No hay conexión a la nube.");
+    if (!window.confirm("⚠️ ATENCIÓN: Esto sobrescribirá los datos de la nube con los datos de TU computadora actual. ¿Continuar?")) return;
+    
+    set(ref(db, 'users'), users);
+    set(ref(db, 'projects'), projects);
+    alert("🚀 Datos forzados a la nube. Ahora otras computadoras deberían ver esta información al recargar.");
   };
 
   // --- Listeners de Firebase ---
@@ -216,13 +234,16 @@ export default function App() {
       const unsubProjects = onValue(ref(db, 'projects'), (snapshot) => {
         const data = snapshot.val();
         if (data) setProjects(data);
-      });
+      }, (error) => setDbError(error.message));
 
       // Escuchar cambios en Usuarios
       const unsubUsers = onValue(ref(db, 'users'), (snapshot) => {
         const data = snapshot.val();
-        if (data) setUsers(data);
-      });
+        if (data) {
+            setUsers(data);
+            console.log("Usuarios recibidos de nube:", data.length);
+        }
+      }, (error) => setDbError(error.message));
 
       return () => {
         unsubProjects();
@@ -248,12 +269,16 @@ export default function App() {
   // --- Sistema de Autenticación ---
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    const user = users.find(u => u.username === loginForm.username && u.password === loginForm.password);
+    // Normalizar entrada
+    const inputUser = loginForm.username.trim();
+    const inputPass = loginForm.password.trim();
+
+    const user = users.find(u => u.username === inputUser && u.password === inputPass);
     if (user) {
       setCurrentUser(user);
       localStorage.setItem('apc_session', JSON.stringify(user));
     } else {
-      alert("Acceso denegado.");
+      alert("Acceso denegado. Verifica usuario y contraseña.");
     }
   };
 
@@ -386,12 +411,13 @@ export default function App() {
   if (!currentUser) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#0f172a] p-6 relative overflow-hidden font-sans">
-        <div className="absolute top-4 right-4 flex items-center gap-2 px-4 py-2 bg-slate-800 rounded-full border border-slate-700">
-          {isCloudEnabled ? <Cloud size={14} className="text-green-400"/> : <CloudOff size={14} className="text-slate-500"/>}
-          <span className={`text-[10px] font-black uppercase tracking-widest ${isCloudEnabled ? 'text-green-400' : 'text-slate-500'}`}>
-            {isCloudEnabled ? 'Sincronizado' : 'Modo Local'}
+        <div className="absolute top-4 right-4 flex items-center gap-2 px-4 py-2 bg-slate-800 rounded-full border border-slate-700 shadow-xl">
+          {isCloudEnabled && !dbError ? <Cloud size={14} className="text-green-400"/> : <CloudOff size={14} className="text-red-400"/>}
+          <span className={`text-[10px] font-black uppercase tracking-widest ${isCloudEnabled && !dbError ? 'text-green-400' : 'text-red-400'}`}>
+            {isCloudEnabled && !dbError ? 'Nube Activa' : 'Offline'}
           </span>
         </div>
+
         <form onSubmit={handleLogin} className="w-full max-w-md bg-white rounded-[40px] p-12 shadow-2xl relative z-10">
           <div className="flex flex-col items-center mb-10">
             <div className="w-16 h-16 rounded-2xl flex items-center justify-center mb-4 text-white font-black text-2xl" style={{ background: `linear-gradient(135deg, ${COLORS.teal}, ${COLORS.pink})` }}>APC</div>
@@ -399,9 +425,20 @@ export default function App() {
             <p className="text-[10px] text-slate-400 font-bold uppercase tracking-[0.2em] mt-2 italic text-center">Gestión Certificada ISO 9001:2015</p>
           </div>
           <div className="space-y-6">
-            <input type="text" value={loginForm.username} onChange={e => setLoginForm({ ...loginForm, username: e.target.value })} className="w-full bg-slate-50 border border-slate-100 rounded-2xl p-4 text-sm font-bold text-slate-900 outline-none" placeholder="Usuario" required />
-            <input type="password" value={loginForm.password} onChange={e => setLoginForm({ ...loginForm, password: e.target.value })} className="w-full bg-slate-50 border border-slate-100 rounded-2xl p-4 text-sm font-bold text-slate-900 outline-none" placeholder="Contraseña" required />
-            <button type="submit" className="w-full py-5 bg-slate-900 text-white font-black rounded-2xl uppercase text-xs">Acceder</button>
+            <input type="text" value={loginForm.username} onChange={e => setLoginForm({ ...loginForm, username: e.target.value })} className="w-full bg-slate-50 border border-slate-100 rounded-2xl p-4 text-sm font-bold text-slate-900 outline-none focus:border-teal-400 transition-colors" placeholder="Usuario" required />
+            <input type="password" value={loginForm.password} onChange={e => setLoginForm({ ...loginForm, password: e.target.value })} className="w-full bg-slate-50 border border-slate-100 rounded-2xl p-4 text-sm font-bold text-slate-900 outline-none focus:border-teal-400 transition-colors" placeholder="Contraseña" required />
+            <button type="submit" className="w-full py-5 bg-slate-900 text-white font-black rounded-2xl uppercase text-xs hover:bg-teal-600 transition-all shadow-lg hover:shadow-xl transform hover:-translate-y-1">Acceder</button>
+          </div>
+
+          {/* DIAGNÓSTICO DE SINCRONIZACIÓN */}
+          <div className="mt-8 pt-6 border-t border-slate-100 text-center space-y-2">
+             <p className="text-[9px] text-slate-400 uppercase font-black tracking-widest">Estado del Sistema</p>
+             <div className="flex justify-center gap-4 text-[10px] font-bold text-slate-600">
+                <span>👥 Usuarios: {users.length}</span>
+                <span>📂 Proyectos: {projects.length}</span>
+             </div>
+             {dbError && <p className="text-[10px] text-red-500 font-bold bg-red-50 p-2 rounded-lg mt-2">Error Nube: {dbError}</p>}
+             <p className="text-[8px] text-slate-300 italic max-w-[200px] mx-auto mt-2">Si los usuarios no coinciden, pide al Admin que fuerce la sincronización.</p>
           </div>
         </form>
       </div>
@@ -425,11 +462,11 @@ export default function App() {
         </nav>
         <div className="mt-auto flex flex-col gap-4">
            {/* Indicador de Estado de Conexión */}
-           <div className={`px-4 py-3 rounded-xl border flex items-center gap-3 ${isCloudEnabled ? 'bg-green-50 border-green-200 text-green-700' : 'bg-slate-50 border-slate-200 text-slate-400'}`}>
-              {isCloudEnabled ? <Cloud size={16}/> : <CloudOff size={16}/>}
+           <div className={`px-4 py-3 rounded-xl border flex items-center gap-3 ${isCloudEnabled && !dbError ? 'bg-green-50 border-green-200 text-green-700' : 'bg-red-50 border-red-200 text-red-500'}`}>
+              {isCloudEnabled && !dbError ? <Cloud size={16}/> : <CloudOff size={16}/>}
               <div>
-                <p className="text-[9px] font-black uppercase tracking-widest">{isCloudEnabled ? 'ONLINE' : 'OFFLINE'}</p>
-                <p className="text-[9px] opacity-70">{isCloudEnabled ? 'Sync en tiempo real' : 'Solo local'}</p>
+                <p className="text-[9px] font-black uppercase tracking-widest">{isCloudEnabled && !dbError ? 'ONLINE' : 'ERROR'}</p>
+                <p className="text-[9px] opacity-70 truncate max-w-[140px]">{dbError ? 'Fallo conexión' : 'Sincronizado'}</p>
               </div>
            </div>
            <button onClick={handleLogout} className="py-4 bg-slate-900 text-white rounded-2xl text-[9px] font-black uppercase flex items-center justify-center gap-2"><LogOut size={12}/> Cerrar Sesión</button>
@@ -452,7 +489,21 @@ export default function App() {
                 <StatCard label="Usuarios" value={users.length} color={COLORS.info} icon={<UsersIcon size={20}/>} />
              </div>
           ) : view === 'usuarios' && currentUser.role === 'Admin' ? (
-            <div className="animate-in fade-in">
+            <div className="animate-in fade-in space-y-6">
+               {/* BARRA DE HERRAMIENTAS ADMIN */}
+               <div className="bg-orange-50 border border-orange-100 p-6 rounded-[32px] flex items-center justify-between">
+                  <div className="flex items-center gap-4 text-orange-800">
+                     <div className="w-10 h-10 bg-orange-200 rounded-full flex items-center justify-center"><AlertTriangle size={20}/></div>
+                     <div>
+                       <h4 className="font-black text-sm uppercase">Zona de Peligro / Sync</h4>
+                       <p className="text-[10px] opacity-70">Usa esto si los usuarios no aparecen en otras PCs.</p>
+                     </div>
+                  </div>
+                  <button onClick={forcePushToCloud} className="px-6 py-3 bg-orange-500 hover:bg-orange-600 text-white rounded-xl font-black text-[10px] uppercase shadow-lg flex items-center gap-2 transition-all">
+                     <UploadCloud size={14}/> ☁️ Forzar Subida a la Nube
+                  </button>
+               </div>
+
                <div className="bg-white border border-slate-200 rounded-[32px] overflow-hidden shadow-sm">
                   <table className="w-full text-left">
                      <thead className="bg-slate-50 border-b border-slate-100">
