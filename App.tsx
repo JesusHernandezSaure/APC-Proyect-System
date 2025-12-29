@@ -179,6 +179,31 @@ export default function App() {
     setView('dashboard');
   };
 
+  // --- Gestión de Usuarios (ADMIN) ---
+  const handleCreateUser = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const f = new FormData(e.currentTarget);
+    const newUser: User = {
+      id: Date.now().toString(),
+      username: f.get('username') as string,
+      name: f.get('name') as string,
+      role: f.get('role') as UserRole,
+      isLeader: f.get('isLeader') === 'on',
+      password: (f.get('password') as string) || '123'
+    };
+
+    if (users.find(u => u.username === newUser.username)) return alert("El nombre de usuario ya existe.");
+    setUsers([...users, newUser]);
+    setIsUserModalOpen(false);
+  };
+
+  const deleteUser = (id: string) => {
+    if (id === currentUser?.id) return alert("No puedes eliminar tu propio usuario.");
+    if (window.confirm("¿Seguro que deseas eliminar este usuario?")) {
+      setUsers(users.filter(u => u.id !== id));
+    }
+  };
+
   // --- Gestión de Proyectos ---
   const getProjectFlow = (p: Project) => [
     'Cuentas', ...p.areas_seleccionadas, 'Corrección', 'Cuentas (Cierre)', 'Administración'
@@ -306,6 +331,7 @@ export default function App() {
           <MenuBtn active={view === 'proyectos'} onClick={() => setView('proyectos')} icon={<Briefcase size={18}/>} label="Bandeja ODT" />
           {['Admin', 'Corrección'].includes(currentUser.role) && <MenuBtn active={view === 'correccion'} onClick={() => setView('correccion')} icon={<ShieldCheck size={18}/>} label="Aduana QA" />}
           <MenuBtn active={view === 'historico'} onClick={() => setView('historico')} icon={<History size={18}/>} label="Archivo" />
+          {currentUser.role === 'Admin' && <MenuBtn active={view === 'usuarios'} onClick={() => setView('usuarios')} icon={<UsersIcon size={18}/>} label="Usuarios" />}
         </nav>
         <button onClick={handleLogout} className="mt-auto py-4 bg-slate-900 text-white rounded-2xl text-[9px] font-black uppercase flex items-center justify-center gap-2"><LogOut size={12}/> Cerrar Sesión</button>
       </aside>
@@ -313,7 +339,8 @@ export default function App() {
       <main className="flex-1 flex flex-col min-w-0">
         <header className="h-20 bg-white border-b border-slate-200 flex items-center justify-between px-8 shadow-sm">
           <h2 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em]">{view}</h2>
-          {['Admin', 'Cuentas'].includes(currentUser.role) && <button onClick={() => setIsModalOpen(true)} className="h-11 px-6 bg-teal-600 text-white font-black text-xs rounded-xl shadow-lg">+ NUEVA ODT</button>}
+          {['Admin', 'Cuentas'].includes(currentUser.role) && view !== 'usuarios' && <button onClick={() => setIsModalOpen(true)} className="h-11 px-6 bg-teal-600 text-white font-black text-xs rounded-xl shadow-lg">+ NUEVA ODT</button>}
+          {view === 'usuarios' && <button onClick={() => setIsUserModalOpen(true)} className="h-11 px-6 bg-slate-900 text-white font-black text-xs rounded-xl shadow-lg flex items-center gap-2"><UserPlus size={16}/> NUEVO USUARIO</button>}
         </header>
 
         <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
@@ -322,8 +349,37 @@ export default function App() {
                 <StatCard label="ODTs Activas" value={projects.filter(p => !['Finalizado', 'Cancelado'].includes(p.status)).length} color={COLORS.teal} icon={<Layers size={20}/>} />
                 <StatCard label="QA Pendiente" value={projects.filter(p => !p.correccion_ok && !['Finalizado', 'Cancelado'].includes(p.status)).length} color={COLORS.warning} icon={<ShieldCheck size={20}/>} />
                 <StatCard label="Terminadas" value={projects.filter(p => p.status === 'Finalizado').length} color={COLORS.success} icon={<CheckCircle2 size={20}/>} />
-                <StatCard label="Mi Equipo" value={users.length} color={COLORS.info} icon={<UsersIcon size={20}/>} />
+                <StatCard label="Usuarios" value={users.length} color={COLORS.info} icon={<UsersIcon size={20}/>} />
              </div>
+          ) : view === 'usuarios' && currentUser.role === 'Admin' ? (
+            <div className="animate-in fade-in">
+               <div className="bg-white border border-slate-200 rounded-[32px] overflow-hidden shadow-sm">
+                  <table className="w-full text-left">
+                     <thead className="bg-slate-50 border-b border-slate-100">
+                        <tr>
+                           <th className="px-8 py-5 text-[9px] font-black text-slate-400 uppercase tracking-widest">Nombre</th>
+                           <th className="px-8 py-5 text-[9px] font-black text-slate-400 uppercase tracking-widest">Usuario</th>
+                           <th className="px-8 py-5 text-[9px] font-black text-slate-400 uppercase tracking-widest">Rol / Área</th>
+                           <th className="px-8 py-5 text-[9px] font-black text-slate-400 uppercase tracking-widest">Nivel</th>
+                           <th className="px-8 py-5 text-[9px] font-black text-slate-400 uppercase tracking-widest text-right">Acción</th>
+                        </tr>
+                     </thead>
+                     <tbody className="divide-y divide-slate-100">
+                        {users.map(u => (
+                          <tr key={u.id} className="hover:bg-slate-50/50 transition-colors">
+                             <td className="px-8 py-5 font-black text-slate-800 text-sm">{u.name}</td>
+                             <td className="px-8 py-5 font-mono text-[10px] text-slate-500 font-bold">{u.username}</td>
+                             <td className="px-8 py-5"><span className="px-3 py-1 bg-teal-50 text-teal-700 rounded-lg text-[9px] font-black uppercase border border-teal-100">{u.role}</span></td>
+                             <td className="px-8 py-5 text-[10px] font-black text-slate-400 uppercase">{u.isLeader ? 'Líder' : 'Operativo'}</td>
+                             <td className="px-8 py-5 text-right">
+                               <button onClick={() => deleteUser(u.id)} className="text-slate-300 hover:text-red-500 transition-colors"><Trash2 size={16}/></button>
+                             </td>
+                          </tr>
+                        ))}
+                     </tbody>
+                  </table>
+               </div>
+            </div>
           ) : view === 'proyectos' || view === 'correccion' ? (
             <div className="space-y-4">
                {projects.filter(p => !['Finalizado', 'Cancelado'].includes(p.status)).map(p => (
@@ -506,6 +562,36 @@ export default function App() {
                 </div>
              </form>
           </div>
+        </div>
+      )}
+
+      {/* Modal Nuevo Usuario (Solo Admin) */}
+      {isUserModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-2xl z-[200] flex items-center justify-center p-6 animate-in zoom-in duration-300">
+           <div className="w-full max-w-lg bg-white rounded-[40px] shadow-2xl p-10 border border-slate-200">
+              <h3 className="text-2xl font-black italic uppercase tracking-tighter mb-8 text-slate-900">Crear Acceso</h3>
+              <form onSubmit={handleCreateUser} className="space-y-6">
+                 <Input label="Nombre Completo" name="name" required placeholder="Ej: Juan Pérez" />
+                 <Input label="Usuario (Login)" name="username" required placeholder="Ej: j.perez" />
+                 <Input label="Contraseña" name="password" type="password" required placeholder="••••••••" />
+                 <div className="grid grid-cols-2 gap-6">
+                    <div className="flex flex-col gap-2">
+                      <label className="text-[10px] font-black uppercase text-slate-400 pl-4">Rol / Área</label>
+                      <select name="role" className="bg-slate-50 border border-slate-200 rounded-2xl p-4 text-xs font-bold text-slate-900 outline-none">
+                         {['Admin', 'Cuentas', 'Creativos', 'Médicos', 'Diseño', 'Tráfico', 'Audio y Video', 'Digital', 'Corrección', 'Cuentas (Cierre)', 'Administración'].map(r => <option key={r} value={r}>{r}</option>)}
+                      </select>
+                    </div>
+                    <div className="flex items-center gap-3 pt-6 pl-4">
+                       <input type="checkbox" name="isLeader" id="isLeader" className="w-5 h-5 rounded border-slate-300 text-teal-600 focus:ring-teal-500" />
+                       <label htmlFor="isLeader" className="text-[10px] font-black text-slate-600 uppercase">Es Líder</label>
+                    </div>
+                 </div>
+                 <div className="flex gap-4 pt-4">
+                    <button type="button" onClick={() => setIsUserModalOpen(false)} className="flex-1 py-4 bg-slate-50 text-slate-500 rounded-2xl text-[10px] font-black uppercase hover:bg-slate-100">Cancelar</button>
+                    <button type="submit" className="flex-1 py-4 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase hover:bg-teal-600 shadow-xl">Guardar Usuario</button>
+                 </div>
+              </form>
+           </div>
         </div>
       )}
 
