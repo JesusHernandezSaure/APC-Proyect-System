@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { initializeApp } from "firebase/app";
-import { getDatabase, ref, set, onValue } from "firebase/database";
+import { getDatabase, ref, set, onValue, get } from "firebase/database";
 import { 
   LayoutDashboard, 
   Briefcase, 
@@ -36,7 +36,11 @@ import {
   Cloud,
   CloudOff,
   RefreshCw,
-  UploadCloud
+  UploadCloud,
+  SearchCheck,
+  DollarSign,
+  Power,
+  Ban
 } from 'lucide-react';
 
 // --- ☁️ CONFIGURACIÓN DE NUBE (FIREBASE) ---
@@ -227,6 +231,58 @@ export default function App() {
     alert("🚀 Datos forzados a la nube. Ahora otras computadoras deberían ver esta información al recargar.");
   };
 
+  // Función de verificación de integridad
+  const verifyCloudData = async () => {
+    if (!isCloudEnabled || !db) return alert("Modo Offline");
+    try {
+      const snapshot = await get(ref(db, 'users'));
+      const cloudData = snapshot.val() || [];
+      const cloudCount = Array.isArray(cloudData) ? cloudData.length : 0;
+      const localCount = users.length;
+      
+      alert(
+        `📊 REPORTE DE ESTADO:\n\n` +
+        `☁️ Usuarios en la Nube: ${cloudCount}\n` +
+        `💻 Usuarios Locales: ${localCount}\n\n` +
+        (cloudCount === localCount ? "✅ Todo sincronizado correctamente." : "⚠️ Hay diferencias. Usa 'Forzar Subida' si tus datos locales son los correctos.")
+      );
+    } catch (error: any) {
+      alert("Error al consultar la nube: " + error.message);
+    }
+  };
+
+  // --- Función de Exportación CSV ---
+  const handleExportCSV = () => {
+    const headers = [
+      "ID", "Empresa", "Marca", "Producto", "Tipo", "Status", 
+      "Fecha Inicio", "Fecha Entrega", "Costo (MXN)", "Pagado"
+    ];
+    
+    const rows = projects.map(p => [
+      p.id,
+      `"${p.empresa}"`,
+      `"${p.marca}"`,
+      `"${p.producto}"`,
+      p.tipo,
+      p.status,
+      p.fecha_inicio,
+      p.fecha_entrega_final,
+      p.costo_estimado || 0,
+      p.pagado ? "SI" : "NO"
+    ]);
+
+    const csvContent = "data:text/csv;charset=utf-8," 
+      + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `APC_Reporte_Global_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   // --- Listeners de Firebase ---
   useEffect(() => {
     if (isCloudEnabled && db) {
@@ -334,6 +390,7 @@ export default function App() {
       status: 'Normal',
       fecha_inicio: new Date().toISOString().split('T')[0],
       fecha_entrega_final: formData.get('fecha') as string,
+      // Se obtiene el costo del formulario
       costo_estimado: parseInt(formData.get('costo') as string) || 0,
       pagado: false,
       correccion_ok: false,
@@ -401,6 +458,31 @@ export default function App() {
   const handleQA = (id: string, ok: boolean, notes: string) => {
     syncProjects(projects.map(p => p.id === id ? { ...p, correccion_ok: ok, correccion_notas: notes } : p));
     setSelectedProject(null);
+  };
+
+  // --- Funciones de Cancelación y Reactivación ---
+  const handleCancelar = (id: string) => {
+    const reason = prompt("Por favor ingresa el motivo de la cancelación:");
+    if (!reason) return;
+    syncProjects(projects.map(p => p.id === id ? {
+        ...p,
+        status: 'Cancelado',
+        motivo_cancelacion: reason,
+        historial: [...p.historial, { action: "Cancelado", user: currentUser?.name, timestamp: new Date().toLocaleString() }]
+    } : p));
+    setSelectedProject(null);
+    alert("Proyecto cancelado correctamente.");
+  };
+
+  const handleReactivar = (id: string) => {
+    if (!window.confirm("¿Seguro que deseas reactivar este proyecto? Volverá a estar visible en la bandeja.")) return;
+    syncProjects(projects.map(p => p.id === id ? {
+        ...p,
+        status: 'Normal', // Lo devolvemos a estado activo
+        historial: [...p.historial, { action: "Reactivado", user: currentUser?.name, timestamp: new Date().toLocaleString() }]
+    } : p));
+    setSelectedProject(null);
+    alert("Proyecto reactivado.");
   };
 
   const productionAreas = ['Creativos', 'Médicos', 'Diseño', 'Tráfico', 'Audio y Video', 'Digital'];
@@ -476,8 +558,13 @@ export default function App() {
       <main className="flex-1 flex flex-col min-w-0">
         <header className="h-20 bg-white border-b border-slate-200 flex items-center justify-between px-8 shadow-sm">
           <h2 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em]">{view}</h2>
-          {['Admin', 'Cuentas'].includes(currentUser.role) && view !== 'usuarios' && <button onClick={() => setIsModalOpen(true)} className="h-11 px-6 bg-teal-600 text-white font-black text-xs rounded-xl shadow-lg">+ NUEVA ODT</button>}
+          {['Admin', 'Cuentas'].includes(currentUser.role) && view !== 'usuarios' && view !== 'historico' && <button onClick={() => setIsModalOpen(true)} className="h-11 px-6 bg-teal-600 text-white font-black text-xs rounded-xl shadow-lg">+ NUEVA ODT</button>}
           {view === 'usuarios' && <button onClick={() => setIsUserModalOpen(true)} className="h-11 px-6 bg-slate-900 text-white font-black text-xs rounded-xl shadow-lg flex items-center gap-2"><UserPlus size={16}/> NUEVO USUARIO</button>}
+          {view === 'historico' && (
+            <button onClick={handleExportCSV} className="h-11 px-6 bg-slate-900 text-white font-black text-xs rounded-xl shadow-lg flex items-center gap-2 hover:bg-teal-600 transition-all">
+                <Download size={16}/> DESCARGAR REPORTE GLOBAL
+            </button>
+          )}
         </header>
 
         <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
@@ -499,9 +586,14 @@ export default function App() {
                        <p className="text-[10px] opacity-70">Usa esto si los usuarios no aparecen en otras PCs.</p>
                      </div>
                   </div>
-                  <button onClick={forcePushToCloud} className="px-6 py-3 bg-orange-500 hover:bg-orange-600 text-white rounded-xl font-black text-[10px] uppercase shadow-lg flex items-center gap-2 transition-all">
-                     <UploadCloud size={14}/> ☁️ Forzar Subida a la Nube
-                  </button>
+                  <div className="flex gap-2">
+                    <button onClick={verifyCloudData} className="px-6 py-3 bg-white hover:bg-slate-50 text-orange-600 border border-orange-200 rounded-xl font-black text-[10px] uppercase shadow-sm flex items-center gap-2 transition-all">
+                        <SearchCheck size={14}/> Verificar Estado
+                    </button>
+                    <button onClick={forcePushToCloud} className="px-6 py-3 bg-orange-500 hover:bg-orange-600 text-white rounded-xl font-black text-[10px] uppercase shadow-lg flex items-center gap-2 transition-all">
+                        <UploadCloud size={14}/> ☁️ Forzar Subida
+                    </button>
+                  </div>
                </div>
 
                <div className="bg-white border border-slate-200 rounded-[32px] overflow-hidden shadow-sm">
@@ -548,6 +640,33 @@ export default function App() {
                  </div>
                ))}
             </div>
+          ) : view === 'historico' ? (
+            <div className="space-y-4 animate-in fade-in">
+                {projects.filter(p => ['Finalizado', 'Cancelado'].includes(p.status)).map(p => (
+                    <div key={p.id} onClick={() => setSelectedProject(p)} className={`border rounded-[32px] p-6 flex items-center justify-between hover:shadow-lg transition-all cursor-pointer bg-slate-50 border-slate-200 opacity-80 hover:opacity-100`}>
+                        <div className="flex items-center gap-6">
+                            <div className={`w-14 h-14 rounded-2xl flex flex-col items-center justify-center font-black ${p.status === 'Cancelado' ? 'bg-red-50 text-red-300' : 'bg-green-50 text-green-300'}`}>
+                                <span className="text-[8px] opacity-40 uppercase tracking-widest">ODT</span>{p.id.split('-').pop()}
+                            </div>
+                            <div>
+                                <h4 className="font-black text-lg text-slate-600">{p.empresa}</h4>
+                                <p className="text-[11px] text-slate-400 font-bold uppercase">{p.marca} — {p.producto}</p>
+                            </div>
+                        </div>
+                        <div className="text-right">
+                            <span className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest ${p.status === 'Cancelado' ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-700'}`}>
+                                {p.status}
+                            </span>
+                            <p className="text-[9px] text-slate-400 font-bold mt-2">{p.fecha_entrega_final}</p>
+                        </div>
+                    </div>
+                ))}
+                {projects.filter(p => ['Finalizado', 'Cancelado'].includes(p.status)).length === 0 && (
+                    <div className="text-center py-20">
+                        <p className="text-slate-300 font-black text-xl uppercase tracking-widest">El archivo está vacío</p>
+                    </div>
+                )}
+            </div>
           ) : (
             <div className="h-full flex items-center justify-center text-slate-300 font-black text-xs uppercase tracking-[0.4em]">Sección no disponible en Demo</div>
           )}
@@ -571,6 +690,59 @@ export default function App() {
                  <div className="flex-1 flex flex-col bg-slate-50/20 border-r border-slate-100 overflow-y-auto custom-scrollbar p-8 space-y-10">
                     
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                       
+                       {/* Panel de Gestión de Ciclo de Vida (Nuevo Feature) */}
+                       {['Admin', 'Cuentas'].includes(currentUser.role) && (
+                          <div className="col-span-1 md:col-span-2 bg-white border border-slate-200 p-6 rounded-[32px] shadow-sm flex items-center justify-between">
+                             <div className="flex items-center gap-4">
+                                <div className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center text-slate-500">
+                                   <Power size={18}/>
+                                </div>
+                                <div>
+                                   <h4 className="text-xs font-black uppercase text-slate-700">Gestión de Ciclo de Vida</h4>
+                                   <p className="text-[10px] text-slate-400 font-medium">Control exclusivo de Cuentas/Admin</p>
+                                </div>
+                             </div>
+                             <div>
+                                {['Cancelado', 'Finalizado'].includes(activeProject.status) ? (
+                                   <button 
+                                      onClick={() => handleReactivar(activeProject.id)}
+                                      className="px-6 py-3 bg-blue-50 text-blue-600 border border-blue-100 rounded-xl text-[10px] font-black uppercase hover:bg-blue-100 transition-all flex items-center gap-2"
+                                   >
+                                      <RefreshCw size={14}/> Reactivar Proyecto
+                                   </button>
+                                ) : (
+                                   <button 
+                                      onClick={() => handleCancelar(activeProject.id)}
+                                      className="px-6 py-3 bg-red-50 text-red-500 border border-red-100 rounded-xl text-[10px] font-black uppercase hover:bg-red-100 transition-all flex items-center gap-2"
+                                   >
+                                      <Ban size={14}/> Cancelar Proyecto
+                                   </button>
+                                )}
+                             </div>
+                          </div>
+                       )}
+
+                       {/* Panel de Administración */}
+                       {['Admin', 'Administración'].includes(currentUser.role) && (
+                          <div className="bg-slate-800 p-8 rounded-[40px] text-white shadow-xl">
+                             <h3 className="text-[10px] font-black uppercase text-teal-400 mb-6 tracking-widest flex items-center gap-2"><Wallet size={18}/> Finanzas</h3>
+                             <div className="flex items-center justify-between mb-4">
+                                <span className="text-xs font-bold text-slate-400 uppercase">Costo del Proyecto</span>
+                                <span className="text-2xl font-black text-white">${activeProject.costo_estimado.toLocaleString()}</span>
+                             </div>
+                             <div className="flex items-center justify-between bg-white/5 p-4 rounded-2xl border border-white/10">
+                                <span className="text-xs font-bold text-white uppercase">Estatus de Pago</span>
+                                <button 
+                                  onClick={() => syncProjects(projects.map(p => p.id === activeProject.id ? { ...p, pagado: !p.pagado } : p))}
+                                  className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${activeProject.pagado ? 'bg-green-500 text-white' : 'bg-red-500/20 text-red-400 border border-red-500/50'}`}
+                                >
+                                   {activeProject.pagado ? 'COBRADA / PAGADA' : 'PENDIENTE DE PAGO'}
+                                </button>
+                             </div>
+                          </div>
+                       )}
+
                        {/* Control de Calidad */}
                        {currentUser.role === 'Corrección' && (
                           <div className="bg-slate-900 p-8 rounded-[40px] text-white shadow-xl">
@@ -589,7 +761,10 @@ export default function App() {
                        )}
 
                        {/* Avance de ODT */}
-                       {(activeProject.etapa_actual === currentUser.role || currentUser.role === 'Admin') && (
+                       {((activeProject.etapa_actual === currentUser.role) || 
+                         (currentUser.role === 'Admin') || 
+                         (activeProject.etapa_actual === 'Cuentas (Cierre)' && currentUser.role === 'Cuentas')
+                       ) && (
                           <div className="bg-teal-600 p-8 rounded-[40px] text-white flex flex-col justify-between shadow-xl">
                             <h4 className="text-xl font-black italic">¿Material terminado en {activeProject.etapa_actual}?</h4>
                             <button onClick={() => handleAvanzar(activeProject.id)} className="mt-4 w-full py-5 bg-slate-900 rounded-3xl font-black text-[10px] uppercase shadow-xl flex items-center justify-center gap-3">ENVIAR A SIGUIENTE <ArrowRight size={16}/></button>
@@ -690,8 +865,13 @@ export default function App() {
                    <Input label="Marca" name="marca" required placeholder="Ej: Aspirina" />
                    <Input label="Campaña" name="producto" required placeholder="Lanzamiento Q3" />
                    <div className="grid grid-cols-2 gap-4">
-                      <select name="tipo" className="bg-slate-50 border border-slate-100 rounded-2xl p-4 text-xs font-black text-slate-900 uppercase outline-none"><option>Digital</option><option>Impreso</option><option>Campaña</option></select>
+                      <select name="tipo" className="bg-slate-50 border border-slate-100 rounded-2xl p-4 text-xs font-black text-slate-900 uppercase outline-none"><option>Digital</option><option>Impreso</option></select>
                       <input type="date" name="fecha" required className="bg-slate-50 border border-slate-100 rounded-2xl p-4 text-xs font-black text-slate-900 outline-none" />
+                   </div>
+                   {/* NUEVO CAMPO DE COSTO */}
+                   <div className="relative">
+                      <Input label="Costo (MXN)" name="costo" type="number" required placeholder="0.00" min="0" step="0.01" />
+                      <div className="absolute right-6 top-[38px] text-slate-400 text-sm font-bold">$</div>
                    </div>
                    <textarea name="materiales" required className="w-full bg-slate-50 border border-slate-100 rounded-3xl p-6 text-sm text-slate-900 outline-none min-h-[120px]" placeholder="Brief detallado..."></textarea>
                 </div>
