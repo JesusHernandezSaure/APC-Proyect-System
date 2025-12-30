@@ -171,12 +171,12 @@ export default function App() {
   // --- Estados ---
   const [users, setUsers] = useState<User[]>(() => {
     const saved = localStorage.getItem(USERS_STORAGE_KEY);
-    return saved ? JSON.parse(saved) : INITIAL_USERS;
+    return saved ? (JSON.parse(saved) || []) : INITIAL_USERS;
   });
 
   const [projects, setProjects] = useState<Project[]>(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
-    return saved ? JSON.parse(saved) : [];
+    return saved ? (JSON.parse(saved) || []) : [];
   });
 
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
@@ -192,6 +192,9 @@ export default function App() {
   const [loginForm, setLoginForm] = useState({ username: '', password: '' });
   const [dbError, setDbError] = useState<string | null>(null);
   
+  // Dashboard Filters
+  const [filterDate, setFilterDate] = useState(() => new Date().toISOString().slice(0, 7)); // YYYY-MM
+
   // Inputs de detalle
   const [newComment, setNewComment] = useState('');
   const [newLinkUrl, setNewLinkUrl] = useState('');
@@ -231,6 +234,17 @@ export default function App() {
     alert("🚀 Datos forzados a la nube. Ahora otras computadoras deberían ver esta información al recargar.");
   };
 
+  // Función de Purgado de Base de Datos
+  const handlePurgeDatabase = () => {
+    const confirmation = prompt("⚠️ PELIGRO CRÍTICO ⚠️\n\nEstás a punto de eliminar TODAS las ODTs del sistema.\nPara confirmar, escribe: ELIMINAR");
+    if (confirmation === "ELIMINAR") {
+      syncProjects([]);
+      alert("🗑️ Sistema formateado. Todas las ODTs han sido eliminadas.");
+    } else {
+      alert("Acción cancelada. El texto no coincide.");
+    }
+  };
+
   // Función de verificación de integridad
   const verifyCloudData = async () => {
     if (!isCloudEnabled || !db) return alert("Modo Offline");
@@ -258,7 +272,7 @@ export default function App() {
       "Fecha Inicio", "Fecha Entrega", "Costo (MXN)", "Pagado"
     ];
     
-    const rows = projects.map(p => [
+    const rows = (projects || []).map(p => [
       p.id,
       `"${p.empresa}"`,
       `"${p.marca}"`,
@@ -289,16 +303,18 @@ export default function App() {
       // Escuchar cambios en Proyectos
       const unsubProjects = onValue(ref(db, 'projects'), (snapshot) => {
         const data = snapshot.val();
-        if (data) setProjects(data);
+        // Firebase returns null if empty, or an Object if keys are not sequential
+        // Safe cast to Array
+        const safeData = data ? (Array.isArray(data) ? data : Object.values(data)) : [];
+        setProjects(safeData as Project[]);
       }, (error) => setDbError(error.message));
 
       // Escuchar cambios en Usuarios
       const unsubUsers = onValue(ref(db, 'users'), (snapshot) => {
         const data = snapshot.val();
-        if (data) {
-            setUsers(data);
-            console.log("Usuarios recibidos de nube:", data.length);
-        }
+        const safeData = data ? (Array.isArray(data) ? data : Object.values(data)) : [];
+        setUsers(safeData as User[]);
+        if(safeData.length > 0) console.log("Usuarios recibidos de nube:", safeData.length);
       }, (error) => setDbError(error.message));
 
       return () => {
@@ -329,7 +345,7 @@ export default function App() {
     const inputUser = loginForm.username.trim();
     const inputPass = loginForm.password.trim();
 
-    const user = users.find(u => u.username === inputUser && u.password === inputPass);
+    const user = (users || []).find(u => u.username === inputUser && u.password === inputPass);
     if (user) {
       setCurrentUser(user);
       localStorage.setItem('apc_session', JSON.stringify(user));
@@ -371,7 +387,7 @@ export default function App() {
 
   // --- Gestión de Proyectos ---
   const getProjectFlow = (p: Project) => [
-    'Cuentas', ...p.areas_seleccionadas, 'Corrección', 'Cuentas (Cierre)', 'Administración'
+    'Cuentas', ...(p.areas_seleccionadas || []), 'Corrección', 'Cuentas (Cierre)', 'Administración'
   ];
 
   const handleCreateODT = (e: React.FormEvent<HTMLFormElement>) => {
@@ -402,7 +418,7 @@ export default function App() {
       historial: [{ action: "ODT Creada", user: currentUser?.name, timestamp: new Date().toLocaleString() }]
     };
 
-    syncProjects([newODT, ...projects]);
+    syncProjects([newODT, ...(projects || [])]);
     setIsModalOpen(false);
     setSelectedAreas([]);
     setView('proyectos');
@@ -417,7 +433,7 @@ export default function App() {
       text: newComment,
       timestamp: new Date().toLocaleString()
     };
-    syncProjects(projects.map(p => p.id === selectedProject.id ? { ...p, comentarios: [comment, ...p.comentarios] } : p));
+    syncProjects(projects.map(p => p.id === selectedProject.id ? { ...p, comentarios: [comment, ...(p.comentarios || [])] } : p));
     setNewComment('');
   };
 
@@ -430,7 +446,7 @@ export default function App() {
       description: newLinkDesc || 'Material cargado',
       timestamp: new Date().toLocaleString()
     };
-    syncProjects(projects.map(p => p.id === selectedProject.id ? { ...p, enlaces: [link, ...p.enlaces] } : p));
+    syncProjects(projects.map(p => p.id === selectedProject.id ? { ...p, enlaces: [link, ...(p.enlaces || [])] } : p));
     setNewLinkUrl('');
     setNewLinkDesc('');
   };
@@ -438,7 +454,9 @@ export default function App() {
   const handleAvanzar = (id: string) => {
     const project = projects.find(p => p.id === id);
     if (!project) return;
-    if (project.areas_seleccionadas.includes(project.etapa_actual) && !project.correccion_ok) {
+    // Safe access
+    const areas = project.areas_seleccionadas || [];
+    if (areas.includes(project.etapa_actual) && !project.correccion_ok) {
       alert("⚠️ BLOQUEO ISO: Se requiere el Visto Bueno de Corrección.");
       return;
     }
@@ -468,7 +486,7 @@ export default function App() {
         ...p,
         status: 'Cancelado',
         motivo_cancelacion: reason,
-        historial: [...p.historial, { action: "Cancelado", user: currentUser?.name, timestamp: new Date().toLocaleString() }]
+        historial: [...(p.historial || []), { action: "Cancelado", user: currentUser?.name, timestamp: new Date().toLocaleString() }]
     } : p));
     setSelectedProject(null);
     alert("Proyecto cancelado correctamente.");
@@ -479,11 +497,20 @@ export default function App() {
     syncProjects(projects.map(p => p.id === id ? {
         ...p,
         status: 'Normal', // Lo devolvemos a estado activo
-        historial: [...p.historial, { action: "Reactivado", user: currentUser?.name, timestamp: new Date().toLocaleString() }]
+        historial: [...(p.historial || []), { action: "Reactivado", user: currentUser?.name, timestamp: new Date().toLocaleString() }]
     } : p));
     setSelectedProject(null);
     alert("Proyecto reactivado.");
   };
+
+  // --- Memos de Dashboard ---
+  const filteredProjects = useMemo(() => {
+    return (projects || []).filter(p => p.fecha_inicio.startsWith(filterDate));
+  }, [projects, filterDate]);
+
+  const totalFacturado = useMemo(() => {
+    return filteredProjects.reduce((sum, p) => sum + (p.costo_estimado || 0), 0);
+  }, [filteredProjects]);
 
   const productionAreas = ['Creativos', 'Médicos', 'Diseño', 'Tráfico', 'Audio y Video', 'Digital'];
 
@@ -516,8 +543,8 @@ export default function App() {
           <div className="mt-8 pt-6 border-t border-slate-100 text-center space-y-2">
              <p className="text-[9px] text-slate-400 uppercase font-black tracking-widest">Estado del Sistema</p>
              <div className="flex justify-center gap-4 text-[10px] font-bold text-slate-600">
-                <span>👥 Usuarios: {users.length}</span>
-                <span>📂 Proyectos: {projects.length}</span>
+                <span>👥 Usuarios: {(users || []).length}</span>
+                <span>📂 Proyectos: {(projects || []).length}</span>
              </div>
              {dbError && <p className="text-[10px] text-red-500 font-bold bg-red-50 p-2 rounded-lg mt-2">Error Nube: {dbError}</p>}
              <p className="text-[8px] text-slate-300 italic max-w-[200px] mx-auto mt-2">Si los usuarios no coinciden, pide al Admin que fuerce la sincronización.</p>
@@ -569,11 +596,54 @@ export default function App() {
 
         <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
           {view === 'dashboard' ? (
-             <div className="grid grid-cols-1 md:grid-cols-4 gap-6 animate-in fade-in">
-                <StatCard label="ODTs Activas" value={projects.filter(p => !['Finalizado', 'Cancelado'].includes(p.status)).length} color={COLORS.teal} icon={<Layers size={20}/>} />
-                <StatCard label="QA Pendiente" value={projects.filter(p => !p.correccion_ok && !['Finalizado', 'Cancelado'].includes(p.status)).length} color={COLORS.warning} icon={<ShieldCheck size={20}/>} />
-                <StatCard label="Terminadas" value={projects.filter(p => p.status === 'Finalizado').length} color={COLORS.success} icon={<CheckCircle2 size={20}/>} />
-                <StatCard label="Usuarios" value={users.length} color={COLORS.info} icon={<UsersIcon size={20}/>} />
+             <div className="space-y-6 animate-in fade-in">
+                {/* Filtro y Resumen Financiero */}
+                <div className="bg-white border border-slate-200 p-6 rounded-[32px] shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-6">
+                   <div>
+                      <h3 className="text-xl font-black text-slate-800 italic uppercase tracking-tighter flex items-center gap-3">
+                         <div className="p-2 bg-pink-50 rounded-xl text-pink-500"><DollarSign size={24}/></div>
+                         Resumen Financiero
+                      </h3>
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1 pl-1">
+                         Facturación correspondiente a: <span className="text-slate-800">{filterDate}</span>
+                      </p>
+                   </div>
+                   
+                   <div className="flex items-center gap-4 bg-slate-50 p-3 rounded-2xl border border-slate-100">
+                      <div className="flex flex-col items-end mr-2">
+                         <span className="text-[9px] font-black text-slate-400 uppercase">Filtrar Mes</span>
+                         <span className="text-[9px] font-bold text-slate-300 uppercase">YYYY-MM</span>
+                      </div>
+                      <input 
+                         type="month" 
+                         value={filterDate}
+                         onChange={(e) => setFilterDate(e.target.value)}
+                         className="bg-white border border-slate-200 rounded-xl px-4 py-2 text-xs font-black text-slate-700 outline-none focus:border-teal-500 transition-all shadow-sm"
+                      />
+                   </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                    {/* Facturación Card */}
+                    <div className="bg-slate-900 border border-slate-800 p-8 rounded-[40px] flex flex-col justify-center relative overflow-hidden group">
+                       <div className="absolute top-0 right-0 p-8 opacity-10 group-hover:scale-110 transition-transform">
+                          <DollarSign size={80} className="text-pink-500"/>
+                       </div>
+                       <p className="text-[10px] font-black text-slate-400 uppercase mb-2 italic relative z-10">Facturado (Mes)</p>
+                       <p className="text-4xl font-black italic tracking-tighter text-white relative z-10">
+                          ${totalFacturado.toLocaleString('es-MX')}
+                       </p>
+                       <div className="mt-4 flex items-center gap-2">
+                          <span className="px-3 py-1 bg-pink-500/20 text-pink-400 rounded-lg text-[9px] font-black uppercase border border-pink-500/30">
+                             {filteredProjects.length} ODTs
+                          </span>
+                       </div>
+                    </div>
+
+                    <StatCard label="ODTs Activas (Global)" value={(projects || []).filter(p => !['Finalizado', 'Cancelado'].includes(p.status)).length} color={COLORS.teal} icon={<Layers size={20}/>} />
+                    <StatCard label="QA Pendiente (Global)" value={(projects || []).filter(p => !p.correccion_ok && !['Finalizado', 'Cancelado'].includes(p.status)).length} color={COLORS.warning} icon={<ShieldCheck size={20}/>} />
+                    <StatCard label="Terminadas (Global)" value={(projects || []).filter(p => p.status === 'Finalizado').length} color={COLORS.success} icon={<CheckCircle2 size={20}/>} />
+                </div>
              </div>
           ) : view === 'usuarios' && currentUser.role === 'Admin' ? (
             <div className="animate-in fade-in space-y-6">
@@ -593,6 +663,9 @@ export default function App() {
                     <button onClick={forcePushToCloud} className="px-6 py-3 bg-orange-500 hover:bg-orange-600 text-white rounded-xl font-black text-[10px] uppercase shadow-lg flex items-center gap-2 transition-all">
                         <UploadCloud size={14}/> ☁️ Forzar Subida
                     </button>
+                    <button onClick={handlePurgeDatabase} className="px-6 py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl font-black text-[10px] uppercase shadow-lg flex items-center gap-2 transition-all ml-2">
+                        <Trash2 size={14}/> PURGAR BD
+                    </button>
                   </div>
                </div>
 
@@ -608,7 +681,7 @@ export default function App() {
                         </tr>
                      </thead>
                      <tbody className="divide-y divide-slate-100">
-                        {users.map(u => (
+                        {(users || []).map(u => (
                           <tr key={u.id} className="hover:bg-slate-50/50 transition-colors">
                              <td className="px-8 py-5 font-black text-slate-800 text-sm">{u.name}</td>
                              <td className="px-8 py-5 font-mono text-[10px] text-slate-500 font-bold">{u.username}</td>
@@ -625,7 +698,7 @@ export default function App() {
             </div>
           ) : view === 'proyectos' || view === 'correccion' ? (
             <div className="space-y-4">
-               {projects.filter(p => !['Finalizado', 'Cancelado'].includes(p.status)).map(p => (
+               {(projects || []).filter(p => !['Finalizado', 'Cancelado'].includes(p.status)).map(p => (
                  <div key={p.id} onClick={() => setSelectedProject(p)} className="bg-white border border-slate-200 rounded-[32px] p-6 flex items-center justify-between hover:shadow-lg transition-all cursor-pointer">
                     <div className="flex items-center gap-6">
                       <div className="w-14 h-14 bg-slate-50 border border-slate-100 rounded-2xl flex flex-col items-center justify-center font-black text-slate-400">
@@ -642,7 +715,7 @@ export default function App() {
             </div>
           ) : view === 'historico' ? (
             <div className="space-y-4 animate-in fade-in">
-                {projects.filter(p => ['Finalizado', 'Cancelado'].includes(p.status)).map(p => (
+                {(projects || []).filter(p => ['Finalizado', 'Cancelado'].includes(p.status)).map(p => (
                     <div key={p.id} onClick={() => setSelectedProject(p)} className={`border rounded-[32px] p-6 flex items-center justify-between hover:shadow-lg transition-all cursor-pointer bg-slate-50 border-slate-200 opacity-80 hover:opacity-100`}>
                         <div className="flex items-center gap-6">
                             <div className={`w-14 h-14 rounded-2xl flex flex-col items-center justify-center font-black ${p.status === 'Cancelado' ? 'bg-red-50 text-red-300' : 'bg-green-50 text-green-300'}`}>
@@ -661,7 +734,7 @@ export default function App() {
                         </div>
                     </div>
                 ))}
-                {projects.filter(p => ['Finalizado', 'Cancelado'].includes(p.status)).length === 0 && (
+                {(projects || []).filter(p => ['Finalizado', 'Cancelado'].includes(p.status)).length === 0 && (
                     <div className="text-center py-20">
                         <p className="text-slate-300 font-black text-xl uppercase tracking-widest">El archivo está vacío</p>
                     </div>
@@ -786,7 +859,7 @@ export default function App() {
                              <button onClick={handleAddComment} className="w-14 h-14 bg-slate-900 text-white rounded-2xl flex items-center justify-center hover:bg-teal-600 transition-all"><Send size={20}/></button>
                           </div>
                           <div className="space-y-4 mt-6">
-                             {activeProject.comentarios.map(c => (
+                             {(activeProject.comentarios || []).map(c => (
                                <div key={c.id} className="p-4 bg-slate-50/50 rounded-2xl border border-slate-100 relative group">
                                   <div className="flex justify-between mb-2">
                                      <span className="text-[10px] font-black text-slate-800 uppercase">{c.user} <span className="text-teal-600 ml-2 font-bold opacity-70">({c.role})</span></span>
@@ -795,7 +868,7 @@ export default function App() {
                                   <p className="text-sm text-slate-600 leading-relaxed font-medium">{c.text}</p>
                                </div>
                              ))}
-                             {activeProject.comentarios.length === 0 && <p className="text-center text-[10px] text-slate-300 font-bold uppercase italic py-4">No hay comentarios registrados.</p>}
+                             {(activeProject.comentarios || []).length === 0 && <p className="text-center text-[10px] text-slate-300 font-bold uppercase italic py-4">No hay comentarios registrados.</p>}
                           </div>
                        </div>
                     </div>
@@ -812,7 +885,7 @@ export default function App() {
                              </div>
                           </div>
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                             {activeProject.enlaces.map(l => (
+                             {(activeProject.enlaces || []).map(l => (
                                <a key={l.id} href={l.url} target="_blank" rel="noreferrer" className="p-4 bg-slate-50 border border-slate-100 rounded-2xl flex items-center justify-between group hover:border-teal-400 transition-all">
                                   <div className="flex items-center gap-3">
                                      <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-teal-600"><LinkIcon size={16}/></div>
