@@ -690,7 +690,7 @@ export default function App() {
                    <Input label="Marca" name="marca" required placeholder="Ej: Aspirina" />
                    <Input label="Campaña" name="producto" required placeholder="Lanzamiento Q3" />
                    <div className="grid grid-cols-2 gap-4">
-                      <select name="tipo" className="bg-slate-50 border border-slate-100 rounded-2xl p-4 text-xs font-black text-slate-900 uppercase outline-none"><option>Digital</option><option>Impreso</option></select>
+                      <select name="tipo" className="bg-slate-50 border border-slate-100 rounded-2xl p-4 text-xs font-black text-slate-900 uppercase outline-none"><option>Digital</option><option>Impreso</option><option>Campaña</option></select>
                       <input type="date" name="fecha" required className="bg-slate-50 border border-slate-100 rounded-2xl p-4 text-xs font-black text-slate-900 outline-none" />
                    </div>
                    <textarea name="materiales" required className="w-full bg-slate-50 border border-slate-100 rounded-3xl p-6 text-sm text-slate-900 outline-none min-h-[120px]" placeholder="Brief detallado..."></textarea>
