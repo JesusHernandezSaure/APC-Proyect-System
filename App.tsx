@@ -132,6 +132,12 @@ interface ProjectLink {
   timestamp: string;
 }
 
+interface TrackingLog {
+  area: string;
+  start: string; // ISO Date String
+  end?: string;  // ISO Date String
+}
+
 interface Project {
   id: string;
   empresa: string;
@@ -154,6 +160,7 @@ interface Project {
   historial: any[];
   areas_seleccionadas: string[];
   asignaciones: Assignment[];
+  tracking: TrackingLog[]; // Nuevo campo para auditoría de tiempos
 }
 
 const STORAGE_KEY = 'apc_pro_v11_master';
@@ -265,25 +272,87 @@ export default function App() {
     }
   };
 
-  // --- Función de Exportación CSV ---
+  // --- Función de Exportación CSV con Métricas Operativas ---
   const handleExportCSV = () => {
-    const headers = [
+    // Definimos todas las áreas posibles para crear columnas consistentes
+    const allAreas = [
+      'Cuentas', 
+      'Creativos', 
+      'Médicos', 
+      'Diseño', 
+      'Tráfico', 
+      'Audio y Video', 
+      'Digital', 
+      'Corrección', 
+      'Cuentas (Cierre)', 
+      'Administración'
+    ];
+
+    // Encabezados Base
+    const baseHeaders = [
       "ID", "Empresa", "Marca", "Producto", "Tipo", "Status", 
       "Fecha Inicio", "Fecha Entrega", "Costo (MXN)", "Pagado"
     ];
+
+    // Encabezados Dinámicos por Área (Entrada, Salida, Días)
+    const areaHeaders: string[] = [];
+    allAreas.forEach(area => {
+       areaHeaders.push(`${area} (Entrada)`);
+       areaHeaders.push(`${area} (Salida)`);
+       areaHeaders.push(`${area} (Días)`);
+    });
+
+    const headers = [...baseHeaders, ...areaHeaders];
     
-    const rows = (projects || []).map(p => [
-      p.id,
-      `"${p.empresa}"`,
-      `"${p.marca}"`,
-      `"${p.producto}"`,
-      p.tipo,
-      p.status,
-      p.fecha_inicio,
-      p.fecha_entrega_final,
-      p.costo_estimado || 0,
-      p.pagado ? "SI" : "NO"
-    ]);
+    const rows = (projects || []).map(p => {
+      // Base Row Data
+      const baseData = [
+        p.id,
+        `"${p.empresa}"`,
+        `"${p.marca}"`,
+        `"${p.producto}"`,
+        p.tipo,
+        p.status,
+        p.fecha_inicio,
+        p.fecha_entrega_final,
+        p.costo_estimado || 0,
+        p.pagado ? "SI" : "NO"
+      ];
+
+      // Area Time Data logic
+      const areaData = allAreas.map(area => {
+         // Buscar registros de esta área en el tracking
+         const tracks = (p.tracking || []).filter(t => t.area === area);
+         
+         if (tracks.length === 0) {
+            return ["-", "-", "0"]; // No pasó por esta área
+         }
+
+         // Tomamos la primera entrada y la última salida (o fecha actual si sigue ahí)
+         const firstEntry = tracks[0].start;
+         const lastExit = tracks[tracks.length - 1].end || (p.status === 'Finalizado' ?  p.fecha_entrega_real : new Date().toISOString());
+
+         // Calcular días totales acumulados en esta área
+         let totalMs = 0;
+         tracks.forEach(t => {
+            const start = new Date(t.start).getTime();
+            const end = t.end ? new Date(t.end).getTime() : new Date().getTime();
+            totalMs += (end - start);
+         });
+
+         const days = (totalMs / (1000 * 60 * 60 * 24)).toFixed(2); // Convertir ms a días con 2 decimales
+         
+         // Formatear fechas para excel
+         const fmtDate = (iso: string | undefined) => iso ? iso.replace('T', ' ').substring(0, 16) : '-';
+
+         return [fmtDate(firstEntry), fmtDate(tracks[tracks.length - 1].end), days.replace('.', ',')];
+      });
+
+      // Flatten areaData arrays
+      const flatAreaData = areaData.flat();
+
+      return [...baseData, ...flatAreaData];
+    });
 
     const csvContent = "data:text/csv;charset=utf-8," 
       + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
@@ -291,7 +360,7 @@ export default function App() {
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `APC_Reporte_Global_${new Date().toISOString().split('T')[0]}.csv`);
+    link.setAttribute("download", `APC_Reporte_Operativo_${new Date().toISOString().split('T')[0]}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -395,6 +464,11 @@ export default function App() {
     if (selectedAreas.length === 0) return alert("Selecciona áreas.");
     const formData = new FormData(e.currentTarget);
     
+    // Iniciar el tracking para el área inicial (Cuentas)
+    const initialTracking: TrackingLog[] = [
+      { area: 'Cuentas', start: new Date().toISOString() }
+    ];
+
     const newODT: Project = {
       id: `ODT-${Math.floor(Math.random() * 9000) + 1000}`,
       empresa: formData.get('empresa') as string,
@@ -415,7 +489,8 @@ export default function App() {
       enlaces: [],
       areas_seleccionadas: selectedAreas,
       asignaciones: selectedAreas.map(area => ({ area })),
-      historial: [{ action: "ODT Creada", user: currentUser?.name, timestamp: new Date().toLocaleString() }]
+      historial: [{ action: "ODT Creada", user: currentUser?.name, timestamp: new Date().toLocaleString() }],
+      tracking: initialTracking // Auditoría ISO
     };
 
     syncProjects([newODT, ...(projects || [])]);
@@ -460,13 +535,49 @@ export default function App() {
       alert("⚠️ BLOQUEO ISO: Se requiere el Visto Bueno de Corrección.");
       return;
     }
+    
     syncProjects(projects.map(p => {
       if (p.id === id) {
         const flow = getProjectFlow(p);
         const idx = flow.indexOf(p.etapa_actual);
         const next = flow[idx + 1];
-        if (!next) return { ...p, etapa_actual: 'Finalizado', status: 'Finalizado' };
-        return { ...p, etapa_actual: next, correccion_ok: false };
+        
+        // --- LOGICA DE TRACKING DE TIEMPOS (ISO) ---
+        // 1. Clonar tracking actual o iniciar vacío
+        const newTracking = [...(p.tracking || [])];
+        const now = new Date().toISOString();
+
+        // 2. Cerrar etapa actual (buscar el último registro abierto de la etapa actual)
+        // Buscamos de atrás hacia adelante para encontrar la entrada más reciente de esta etapa
+        let currentLogIndex = -1;
+        for (let i = newTracking.length - 1; i >= 0; i--) {
+            if (newTracking[i].area === p.etapa_actual && !newTracking[i].end) {
+                currentLogIndex = i;
+                break;
+            }
+        }
+        
+        // Si se encontró, cerramos la fecha
+        if (currentLogIndex !== -1) {
+            newTracking[currentLogIndex] = { ...newTracking[currentLogIndex], end: now };
+        }
+
+        // 3. Determinar siguiente estado
+        if (!next) {
+            // FIN DEL PROYECTO
+            return { 
+                ...p, 
+                etapa_actual: 'Finalizado', 
+                status: 'Finalizado',
+                fecha_entrega_real: now,
+                tracking: newTracking // Solo cerramos, no abrimos nada nuevo
+            };
+        }
+
+        // 4. Abrir siguiente etapa
+        newTracking.push({ area: next, start: now });
+
+        return { ...p, etapa_actual: next, correccion_ok: false, tracking: newTracking };
       }
       return p;
     }));
@@ -482,23 +593,56 @@ export default function App() {
   const handleCancelar = (id: string) => {
     const reason = prompt("Por favor ingresa el motivo de la cancelación:");
     if (!reason) return;
-    syncProjects(projects.map(p => p.id === id ? {
-        ...p,
-        status: 'Cancelado',
-        motivo_cancelacion: reason,
-        historial: [...(p.historial || []), { action: "Cancelado", user: currentUser?.name, timestamp: new Date().toLocaleString() }]
-    } : p));
+    const now = new Date().toISOString();
+    
+    syncProjects(projects.map(p => {
+        if(p.id === id) {
+             // Cerrar tracking actual al cancelar
+             const newTracking = [...(p.tracking || [])];
+             let currentLogIndex = -1;
+             for (let i = newTracking.length - 1; i >= 0; i--) {
+                if (newTracking[i].area === p.etapa_actual && !newTracking[i].end) {
+                    currentLogIndex = i;
+                    break;
+                }
+             }
+             if (currentLogIndex !== -1) {
+                newTracking[currentLogIndex] = { ...newTracking[currentLogIndex], end: now };
+             }
+
+             return {
+                ...p,
+                status: 'Cancelado',
+                motivo_cancelacion: reason,
+                historial: [...(p.historial || []), { action: "Cancelado", user: currentUser?.name, timestamp: new Date().toLocaleString() }],
+                tracking: newTracking
+             }
+        }
+        return p;
+    }));
     setSelectedProject(null);
     alert("Proyecto cancelado correctamente.");
   };
 
   const handleReactivar = (id: string) => {
     if (!window.confirm("¿Seguro que deseas reactivar este proyecto? Volverá a estar visible en la bandeja.")) return;
-    syncProjects(projects.map(p => p.id === id ? {
-        ...p,
-        status: 'Normal', // Lo devolvemos a estado activo
-        historial: [...(p.historial || []), { action: "Reactivado", user: currentUser?.name, timestamp: new Date().toLocaleString() }]
-    } : p));
+    const now = new Date().toISOString();
+
+    syncProjects(projects.map(p => {
+        if (p.id === id) {
+            // Al reactivar, necesitamos abrir un tracking nuevo en la etapa actual
+            // Porque se asume que estaba "Cerrada" por cancelación o finalización
+            const newTracking = [...(p.tracking || []), { area: p.etapa_actual, start: now }];
+
+            return {
+                ...p,
+                status: 'Normal', // Lo devolvemos a estado activo
+                historial: [...(p.historial || []), { action: "Reactivado", user: currentUser?.name, timestamp: new Date().toLocaleString() }],
+                tracking: newTracking
+            }
+        }
+        return p;
+    }));
     setSelectedProject(null);
     alert("Proyecto reactivado.");
   };
