@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { initializeApp } from "firebase/app";
 import { getDatabase, ref, set, onValue, get } from "firebase/database";
@@ -28,9 +27,9 @@ import {
   FileBarChart, 
   Wallet, 
   History,
-  ShieldAlert,
+  ShieldAlert, 
   Inbox,
-  CheckSquare,
+  CheckSquare, 
   ClipboardCheck,
   Trash2,
   ExternalLink,
@@ -53,7 +52,9 @@ import {
   Ban,
   PieChart,
   Calendar,
-  MapPin
+  MapPin,
+  Bell,
+  UserCog
 } from 'lucide-react';
 
 // --- ☁️ CONFIGURACIÓN DE NUBE (FIREBASE) ---
@@ -88,16 +89,16 @@ try {
 
 // --- Configuración de Colores Corporativos APC Publicidad ---
 const COLORS = {
-  pink: '#ec4899',   // Magenta corporativo (Rombo)
-  teal: '#0d9488',   // Verde/Teal corporativo (Coma/Rectángulo)
+  pink: '#ec4899',   // Magenta corporativo (Rombo) - ALARMAS
+  teal: '#0d9488',   // Verde/Teal corporativo (Coma/Rectángulo) - ÉXITO
   dark: '#334155',   // Gris Pizarra (Texto Logotipo)
   bg: '#f8fafc',
   white: '#ffffff',
   text: '#334155',
   border: '#e2e8f0',
-  success: '#0d9488', // Usamos el Teal para éxito
+  success: '#0d9488', 
   warning: '#f59e0b',
-  danger: '#be185d',  // Un rosa más oscuro para alertas
+  danger: '#be185d',  
   info: '#3b82f6'
 };
 
@@ -129,7 +130,8 @@ interface User {
 
 interface Assignment {
   area: string;
-  assignedTo?: string; 
+  assignedToName?: string; // Nombre del usuario
+  assignedToId?: string;   // ID del usuario
   assignedAt?: string;
 }
 
@@ -161,8 +163,8 @@ interface Project {
   marca: string;
   producto: string;
   tipo: string;
-  sub_tipo?: string; // Nuevo campo
-  materiales: string; // HTML string del Rich Text
+  sub_tipo?: string; 
+  materiales: string; 
   etapa_actual: string;
   status: 'Normal' | 'Urgente' | 'Vencido' | 'Cancelado' | 'Finalizado';
   motivo_cancelacion?: string;
@@ -170,8 +172,8 @@ interface Project {
   fecha_entrega_final: string;
   fecha_entrega_real?: string;
   costo_estimado: number;
-  se_factura: boolean; // Nuevo campo
-  justificacion_no_factura?: string; // Nuevo campo
+  se_factura: boolean; 
+  justificacion_no_factura?: string; 
   pagado: boolean;
   correccion_ok: boolean;
   correccion_notas: string;
@@ -193,6 +195,29 @@ const INITIAL_USERS: User[] = [
   { id: '4', username: 'diseno.op', name: 'Juan Perez', role: 'Diseño', isLeader: false, password: '123' },
   { id: '5', username: 'qa.lider', name: 'Marta Ruiz', role: 'Corrección', isLeader: true, password: '123' },
 ];
+
+// --- FUNCIONES AUXILIARES SLA ---
+const checkSLA = (project: Project): { alert: boolean, type: 'QA' | 'General' | 'None', hours: number } => {
+    if (['Finalizado', 'Cancelado'].includes(project.status)) return { alert: false, type: 'None', hours: 0 };
+
+    const lastTrack = project.tracking[project.tracking.length - 1];
+    if (!lastTrack) return { alert: false, type: 'None', hours: 0 };
+
+    const diff = new Date().getTime() - new Date(lastTrack.start).getTime();
+    const hours = Math.floor(diff / (1000 * 60 * 60));
+
+    // Regla QA: > 24 horas en Corrección
+    if (project.etapa_actual === 'Corrección' && hours > 24) {
+        return { alert: true, type: 'QA', hours };
+    }
+
+    // Regla General: > 72 horas (3 días) en cualquier área
+    if (hours > 72) {
+        return { alert: true, type: 'General', hours };
+    }
+
+    return { alert: false, type: 'None', hours };
+};
 
 export default function App() {
   // --- Estados ---
@@ -289,6 +314,11 @@ export default function App() {
       localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(newData));
     }
     setUsers(newData);
+  };
+
+  // --- Helper de Asignación Automática ---
+  const findLeaderForArea = (area: string): User | undefined => {
+      return users.find(u => u.role === area && u.isLeader);
   };
 
   // Función de rescate: Forzar subida de datos locales a la nube
@@ -511,6 +541,12 @@ export default function App() {
       { area: 'Cuentas', start: new Date().toISOString() }
     ];
 
+    // ASIGNACIÓN AUTOMÁTICA AL LÍDER DE CUENTAS
+    const cuentasLeader = findLeaderForArea('Cuentas');
+    const initialAssignments: Assignment[] = cuentasLeader 
+        ? [{ area: 'Cuentas', assignedToId: cuentasLeader.id, assignedToName: cuentasLeader.name, assignedAt: new Date().toISOString() }]
+        : [];
+
     const newODT: Project = {
       id: formData.get('id_odt') as string, // ID Manual como solicitado
       empresa: formData.get('empresa') as string,
@@ -534,7 +570,7 @@ export default function App() {
       comentarios: [],
       enlaces: [],
       areas_seleccionadas: selectedAreas,
-      asignaciones: selectedAreas.map(area => ({ area })),
+      asignaciones: initialAssignments,
       historial: [{ action: "ODT Creada", user: currentUser?.name, timestamp: new Date().toLocaleString() }],
       tracking: initialTracking 
     };
@@ -616,12 +652,59 @@ export default function App() {
         }
 
         newTracking.push({ area: next, start: now });
+        
+        // ASIGNACIÓN AUTOMÁTICA AL LÍDER DEL SIGUIENTE ÁREA
+        const nextLeader = findLeaderForArea(next);
+        let newAssignments = [...(p.asignaciones || [])];
+        if (nextLeader) {
+            // Remover asignación previa de esta área si existiera para actualizarla
+            newAssignments = newAssignments.filter(a => a.area !== next);
+            newAssignments.push({
+                area: next,
+                assignedToId: nextLeader.id,
+                assignedToName: nextLeader.name,
+                assignedAt: now
+            });
+        }
 
-        return { ...p, etapa_actual: next, correccion_ok: false, tracking: newTracking };
+        return { ...p, etapa_actual: next, correccion_ok: false, tracking: newTracking, asignaciones: newAssignments };
       }
       return p;
     }));
     setSelectedProject(null);
+  };
+
+  // Asignación Manual (Delegación)
+  const handleManualAssign = (userId: string) => {
+      if (!selectedProject || !currentUser) return;
+      const targetUser = users.find(u => u.id === userId);
+      if (!targetUser) return;
+
+      const now = new Date().toISOString();
+      
+      syncProjects(projects.map(p => {
+          if (p.id === selectedProject.id) {
+              const newAssignments = (p.asignaciones || []).filter(a => a.area !== p.etapa_actual);
+              newAssignments.push({
+                  area: p.etapa_actual,
+                  assignedToId: targetUser.id,
+                  assignedToName: targetUser.name,
+                  assignedAt: now
+              });
+              
+              const systemComment: ProjectComment = {
+                id: Date.now().toString(),
+                user: "SYSTEM",
+                role: "System",
+                text: `🔀 TAREA REASIGNADA\nDe: ${currentUser.name}\nA: ${targetUser.name}`,
+                timestamp: new Date().toLocaleString()
+              };
+
+              return { ...p, asignaciones: newAssignments, comentarios: [systemComment, ...(p.comentarios || [])] };
+          }
+          return p;
+      }));
+      alert(`✅ Tarea asignada correctamente a ${targetUser.name}`);
   };
 
   const handleQA = (id: string, ok: boolean, notes: string) => {
@@ -715,6 +798,18 @@ export default function App() {
         if (p.id === selectedProject.id) {
             const newTracking = [...(p.tracking || []), { area: reactivationData.stage, start: now }];
             
+            // Asignar al líder de la etapa de reactivación
+            const leader = findLeaderForArea(reactivationData.stage);
+            let newAssignments = [...(p.asignaciones || [])];
+            if(leader) {
+                newAssignments.push({
+                   area: reactivationData.stage,
+                   assignedToId: leader.id,
+                   assignedToName: leader.name,
+                   assignedAt: now
+                });
+            }
+
             // Agregar instrucciones de reactivación al muro
             const newComment: ProjectComment = {
                 id: Date.now().toString(),
@@ -731,7 +826,8 @@ export default function App() {
                 fecha_entrega_final: reactivationData.newDate,
                 historial: [...(p.historial || []), { action: "Reactivado", user: currentUser?.name, timestamp: new Date().toLocaleString() }],
                 tracking: newTracking,
-                comentarios: [newComment, ...(p.comentarios || [])]
+                comentarios: [newComment, ...(p.comentarios || [])],
+                asignaciones: newAssignments
             }
         }
         return p;
@@ -760,12 +856,10 @@ export default function App() {
     count: activeProjects.filter(p => p.areas_seleccionadas?.includes(area)).length
   })).filter(item => item.count > 0);
 
-  // 2. Estado de Alerta
+  // 2. Estado de Alerta (SLA Logic)
   const delayedCount = activeProjects.filter(p => {
-    const today = new Date();
-    today.setHours(0,0,0,0);
-    const delivery = new Date(p.fecha_entrega_final);
-    return delivery < today;
+    const sla = checkSLA(p);
+    return sla.alert;
   }).length;
 
   // 3. Performance Mensual
@@ -790,6 +884,12 @@ export default function App() {
   ];
 
   const activeProject = selectedProject ? projects.find(p => p.id === selectedProject.id) : null;
+
+  // NOTIFICACIONES DE ASIGNACIÓN
+  const myAssignments = activeProjects.filter(p => {
+      const assignment = (p.asignaciones || []).find(a => a.area === p.etapa_actual);
+      return assignment && assignment.assignedToId === currentUser?.id;
+  });
 
   // Filtered List for ODT Tray
   const trayProjects = useMemo(() => {
@@ -875,13 +975,31 @@ export default function App() {
                 <p className="text-[9px] opacity-70 truncate max-w-[140px]">{dbError ? 'Fallo conexión' : 'Sincronizado'}</p>
               </div>
            </div>
+           <div className="px-4 py-3 rounded-xl bg-slate-100 flex items-center gap-3">
+               <div className="w-8 h-8 rounded-full bg-slate-300 flex items-center justify-center font-bold text-slate-600 text-xs">
+                   {currentUser.name.charAt(0)}
+               </div>
+               <div className="flex-1 min-w-0">
+                   <p className="text-[10px] font-bold text-slate-700 truncate">{currentUser.name}</p>
+                   <p className="text-[8px] text-slate-500 uppercase">{currentUser.role}</p>
+               </div>
+           </div>
            <button onClick={handleLogout} className="py-4 bg-slate-800 hover:bg-slate-900 text-white rounded-2xl text-[9px] font-black uppercase flex items-center justify-center gap-2 transition-colors"><LogOut size={12}/> Cerrar Sesión</button>
         </div>
       </aside>
 
       <main className="flex-1 flex flex-col min-w-0 bg-[#f8fafc]">
         <header className="h-20 bg-white border-b border-slate-200 flex items-center justify-between px-8 shadow-sm">
-          <h2 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em]">{view}</h2>
+          <div className="flex items-center gap-4">
+              <h2 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em]">{view}</h2>
+              {/* ALARM BADGE */}
+              <div className="flex items-center gap-2 px-3 py-1 bg-slate-50 border border-slate-200 rounded-lg">
+                  <Bell size={14} className={myAssignments.length > 0 || delayedCount > 0 ? "text-pink-500 animate-pulse" : "text-slate-400"} />
+                  <span className="text-[10px] font-bold text-slate-600">
+                      {myAssignments.length} Asignaciones | {delayedCount} Alertas SLA
+                  </span>
+              </div>
+          </div>
           {['Admin', 'Cuentas'].includes(currentUser.role) && view !== 'usuarios' && view !== 'historico' && <button onClick={() => setIsModalOpen(true)} className="h-11 px-6 bg-teal-600 hover:bg-teal-700 text-white font-black text-xs rounded-xl shadow-lg transition-all">+ NUEVA ODT</button>}
           {view === 'usuarios' && <button onClick={() => setIsUserModalOpen(true)} className="h-11 px-6 bg-slate-800 text-white font-black text-xs rounded-xl shadow-lg flex items-center gap-2"><UserPlus size={16}/> NUEVO USUARIO</button>}
           {view === 'historico' && (
@@ -894,6 +1012,17 @@ export default function App() {
         <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
           {view === 'dashboard' ? (
              <div className="space-y-6 animate-in fade-in pb-10">
+                {/* Banner de Notificaciones Personales */}
+                {myAssignments.length > 0 && (
+                    <div className="bg-pink-50 border border-pink-100 p-4 rounded-2xl flex items-center gap-4 shadow-sm animate-pulse">
+                        <div className="p-2 bg-pink-100 rounded-xl text-pink-600"><Bell size={20}/></div>
+                        <div>
+                            <h4 className="font-black text-sm text-pink-700">¡Tienes {myAssignments.length} ODTs asignadas!</h4>
+                            <p className="text-xs text-pink-500">Revisa la bandeja para ver tus tareas pendientes.</p>
+                        </div>
+                    </div>
+                )}
+
                 {/* Filtro y Resumen Financiero */}
                 <div className="bg-white border border-slate-200 p-6 rounded-[32px] shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-6">
                    <div>
@@ -932,11 +1061,11 @@ export default function App() {
                     {/* Alerta de Retraso Chart Value */}
                     <div className="bg-white border border-slate-200 p-8 rounded-[40px] flex items-center justify-between group hover:border-pink-200 transition-all">
                        <div>
-                          <p className="text-[10px] font-black text-slate-400 uppercase mb-2 italic">Estado de Alerta</p>
+                          <p className="text-[10px] font-black text-slate-400 uppercase mb-2 italic">Alertas ISO / SLA</p>
                           <p className={`text-4xl font-black italic tracking-tighter ${delayedCount > 0 ? 'text-pink-600' : 'text-slate-800'}`}>{delayedCount}</p>
-                          <p className="text-[9px] text-slate-400 mt-1 uppercase font-bold">Retrasadas</p>
+                          <p className="text-[9px] text-slate-400 mt-1 uppercase font-bold">Riesgo Alto</p>
                        </div>
-                       <div className="p-4 rounded-2xl bg-slate-50 text-pink-500"><AlertTriangle size={20}/></div>
+                       <div className={`p-4 rounded-2xl ${delayedCount > 0 ? 'bg-pink-100 text-pink-600 animate-pulse' : 'bg-slate-50 text-slate-300'}`}><AlertTriangle size={20}/></div>
                     </div>
                     <StatCard label="Terminadas (Global)" value={(projects || []).filter(p => p.status === 'Finalizado').length} color={COLORS.success} icon={<CheckCircle2 size={20}/>} />
                 </div>
@@ -1052,20 +1181,39 @@ export default function App() {
                     </div>
                 )}
 
-               {(view === 'proyectos' ? trayProjects : projects).filter(p => !['Finalizado', 'Cancelado'].includes(p.status)).map(p => (
-                 <div key={p.id} onClick={() => setSelectedProject(p)} className="bg-white border border-slate-200 rounded-[32px] p-6 flex items-center justify-between hover:shadow-lg transition-all cursor-pointer group hover:border-teal-200">
+               {(view === 'proyectos' ? trayProjects : projects).filter(p => !['Finalizado', 'Cancelado'].includes(p.status)).map(p => {
+                 const slaStatus = checkSLA(p);
+                 const currentAssignee = (p.asignaciones || []).find(a => a.area === p.etapa_actual);
+                 
+                 return (
+                 <div key={p.id} onClick={() => setSelectedProject(p)} className={`bg-white border rounded-[32px] p-6 flex items-center justify-between hover:shadow-lg transition-all cursor-pointer group 
+                     ${slaStatus.alert ? 'border-pink-500 animate-pulse bg-pink-50/10' : 'border-slate-200 hover:border-teal-200'}`}>
                     <div className="flex items-center gap-6">
-                      <div className="w-14 h-14 bg-slate-50 border border-slate-100 rounded-2xl flex flex-col items-center justify-center font-black text-slate-400 group-hover:bg-teal-50 group-hover:text-teal-600 transition-colors">
+                      <div className={`w-14 h-14 border rounded-2xl flex flex-col items-center justify-center font-black transition-colors ${slaStatus.alert ? 'bg-pink-100 text-pink-600 border-pink-200' : 'bg-slate-50 border-slate-100 text-slate-400 group-hover:bg-teal-50 group-hover:text-teal-600'}`}>
                          <span className="text-[8px] opacity-40 uppercase tracking-widest">ODT</span>{p.id.replace('ODT-', '')}
                       </div>
-                      <div><h4 className="font-black text-lg text-slate-800">{p.empresa}</h4><p className="text-[11px] text-slate-500 font-bold uppercase">{p.marca} — {p.producto}</p></div>
+                      <div>
+                          <h4 className={`font-black text-lg ${slaStatus.alert ? 'text-pink-700' : 'text-slate-800'}`}>{p.empresa}</h4>
+                          <p className="text-[11px] text-slate-500 font-bold uppercase">{p.marca} — {p.producto}</p>
+                          {currentAssignee && (
+                              <div className="flex items-center gap-1 mt-1">
+                                  <UserCog size={10} className="text-slate-400"/>
+                                  <span className="text-[9px] text-slate-400 uppercase font-bold">{currentAssignee.assignedToName || 'Sin asignar'}</span>
+                              </div>
+                          )}
+                      </div>
                     </div>
                     <div className="text-right">
                        <p className="text-[9px] font-black text-slate-400 uppercase mb-1">Status Actual</p>
-                       <p className="font-black text-teal-600 uppercase tracking-tighter text-xl">{p.etapa_actual}</p>
+                       <p className={`font-black uppercase tracking-tighter text-xl ${slaStatus.alert ? 'text-pink-600' : 'text-teal-600'}`}>{p.etapa_actual}</p>
+                       {slaStatus.alert && (
+                           <span className="inline-block mt-1 px-2 py-0.5 rounded bg-pink-100 text-pink-700 text-[9px] font-black uppercase">
+                               SLA {slaStatus.type} (+{slaStatus.hours}h)
+                           </span>
+                       )}
                     </div>
                  </div>
-               ))}
+               )})}
                
                {view === 'proyectos' && trayProjects.length === 0 && (
                    <div className="text-center py-10 text-slate-400 text-xs uppercase font-bold tracking-widest">No se encontraron proyectos</div>
@@ -1116,6 +1264,33 @@ export default function App() {
                     
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                        
+                       {/* Panel de Asignación Manual (Solo Líderes de la etapa actual) */}
+                       {currentUser.isLeader && currentUser.role === activeProject.etapa_actual && (
+                           <div className="col-span-1 md:col-span-2 bg-indigo-50 border border-indigo-100 p-6 rounded-[32px] shadow-sm flex items-center justify-between">
+                               <div className="flex items-center gap-4">
+                                   <div className="w-10 h-10 bg-indigo-200 text-indigo-700 rounded-full flex items-center justify-center">
+                                       <UserCog size={18}/>
+                                   </div>
+                                   <div>
+                                       <h4 className="text-xs font-black uppercase text-indigo-700">Asignar Tarea (Delegación)</h4>
+                                       <p className="text-[10px] text-indigo-400 font-medium">Asigna esta ODT a un miembro de tu equipo</p>
+                                   </div>
+                               </div>
+                               <select 
+                                   className="bg-white border border-indigo-200 text-indigo-700 text-xs font-bold uppercase rounded-xl px-4 py-2 outline-none"
+                                   onChange={(e) => {
+                                       if(e.target.value) handleManualAssign(e.target.value);
+                                   }}
+                                   value=""
+                               >
+                                   <option value="">Seleccionar Usuario...</option>
+                                   {users.filter(u => u.role === activeProject.etapa_actual && !u.isLeader).map(u => (
+                                       <option key={u.id} value={u.id}>{u.name}</option>
+                                   ))}
+                               </select>
+                           </div>
+                       )}
+
                        {['Admin', 'Cuentas'].includes(currentUser.role) && (
                           <div className="col-span-1 md:col-span-2 bg-white border border-slate-200 p-6 rounded-[32px] shadow-sm flex items-center justify-between">
                              <div className="flex items-center gap-4">
