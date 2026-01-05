@@ -279,8 +279,8 @@ export default function App() {
     'Corrección', 
     'Diseño', 
     'Tráfico', 
-    'Digital', 
     'Audio y Video', 
+    'Digital', 
     'Innovación', 
     'Administración'
   ];
@@ -562,7 +562,7 @@ export default function App() {
       // Lógica de Costo vs Justificación
       costo_estimado: isBilling ? (parseInt(formData.get('costo') as string) || 0) : 0,
       se_factura: isBilling,
-      justificacion_no_factura: !isBilling ? (formData.get('justificacion') as string) : undefined,
+      justificacion_no_factura: !isBilling ? (formData.get('justificacion') as string) : '',
       
       pagado: false,
       correccion_ok: false,
