@@ -196,58 +196,6 @@ const INITIAL_USERS: User[] = [
   { id: '5', username: 'qa.lider', name: 'Marta Ruiz', role: 'Corrección', isLeader: true, password: '123' },
 ];
 
-// --- COMPONENTES UI (DEFINIDOS LOCALMENTE) ---
-
-interface MenuBtnProps {
-  active: boolean;
-  onClick: () => void;
-  icon: React.ReactNode;
-  label: string;
-}
-
-const MenuBtn: React.FC<MenuBtnProps> = ({ active, onClick, icon, label }) => (
-  <button 
-    onClick={onClick}
-    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 group ${
-      active 
-        ? 'bg-slate-800 text-white shadow-xl shadow-slate-200' 
-        : 'text-slate-400 hover:bg-slate-50 hover:text-slate-700'
-    }`}
-  >
-    <div className={`transition-colors ${active ? 'text-teal-400' : 'group-hover:text-teal-500'}`}>
-      {icon}
-    </div>
-    <span className="text-[10px] font-black uppercase tracking-widest">{label}</span>
-  </button>
-);
-
-interface StatCardProps {
-  label: string;
-  value: string | number;
-  color: string;
-  icon: React.ReactNode;
-}
-
-const StatCard: React.FC<StatCardProps> = ({ label, value, color, icon }) => (
-    <div className="bg-white border border-slate-200 p-8 rounded-[40px] flex items-center justify-between group hover:shadow-lg transition-all duration-300 relative overflow-hidden">
-       <div className="relative z-10">
-          <p className="text-[10px] font-black text-slate-400 uppercase mb-2 italic tracking-widest">{label}</p>
-          <p className="text-4xl font-black italic tracking-tighter text-slate-800">{value}</p>
-       </div>
-       <div 
-         className="w-14 h-14 rounded-2xl flex items-center justify-center transition-colors relative z-10"
-         style={{ backgroundColor: `${color}15`, color: color }}
-       >
-         {icon}
-       </div>
-       {/* Decoración de fondo en hover */}
-       <div 
-          className="absolute right-0 top-0 bottom-0 w-32 bg-gradient-to-l from-white to-transparent opacity-0 group-hover:opacity-100 transition-opacity" 
-          style={{ background: `linear-gradient(to left, ${color}10, transparent)` }}
-       />
-    </div>
-);
-
 // --- FUNCIONES AUXILIARES SLA ---
 const checkSLA = (project: Project): { alert: boolean, type: 'QA' | 'General' | 'None', hours: number } => {
     if (['Finalizado', 'Cancelado'].includes(project.status)) return { alert: false, type: 'None', hours: 0 };
@@ -1466,54 +1414,6 @@ export default function App() {
                         </div>
                     </div>
 
-                    {/* Enlaces de Referencia */}
-                    <div className="space-y-6">
-                       <h4 className="text-[10px] font-black uppercase text-slate-400 tracking-widest flex items-center gap-2">
-                          <LinkIcon size={16} className="text-teal-600"/> Repositorio de Enlaces (Entregables / Referencias)
-                       </h4>
-                       <div className="bg-white p-6 rounded-[32px] border border-slate-100 shadow-sm space-y-4">
-                          <div className="flex flex-col md:flex-row gap-4">
-                             <div className="flex-1 flex gap-2">
-                                 <input
-                                    value={newLinkDesc}
-                                    onChange={e => setNewLinkDesc(e.target.value)}
-                                    className="w-1/3 bg-slate-50 border border-slate-100 rounded-2xl p-4 text-xs font-bold text-slate-900 outline-none"
-                                    placeholder="Descripción (Ej: V1, Drive...)"
-                                 />
-                                 <input
-                                    value={newLinkUrl}
-                                    onChange={e => setNewLinkUrl(e.target.value)}
-                                    className="flex-1 bg-slate-50 border border-slate-100 rounded-2xl p-4 text-xs text-slate-600 outline-none font-mono"
-                                    placeholder="https://..."
-                                 />
-                             </div>
-                             <button onClick={handleAddLink} className="w-14 h-14 bg-slate-800 text-white rounded-2xl flex items-center justify-center hover:bg-teal-600 transition-all shadow-lg">
-                                <Plus size={20}/>
-                             </button>
-                          </div>
-                          <div className="space-y-2 mt-4">
-                             {(activeProject.enlaces || []).length === 0 && <p className="text-center text-[10px] text-slate-300 font-bold uppercase py-4">Sin enlaces registrados</p>}
-                             {(activeProject.enlaces || []).map(l => (
-                               <div key={l.id} className="flex items-center justify-between p-4 bg-slate-50/50 rounded-2xl border border-slate-100 hover:bg-white hover:shadow-md transition-all group">
-                                  <div className="flex items-center gap-4 overflow-hidden">
-                                     <div className="w-10 h-10 rounded-full bg-teal-50 text-teal-600 flex items-center justify-center flex-shrink-0">
-                                        <LinkIcon size={18}/>
-                                     </div>
-                                     <div className="min-w-0">
-                                        <p className="text-xs font-black text-slate-700 uppercase truncate">{l.description}</p>
-                                        <a href={l.url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-blue-500 hover:underline truncate block font-mono">{l.url}</a>
-                                     </div>
-                                  </div>
-                                  <div className="text-right pl-4 flex-shrink-0">
-                                     <p className="text-[9px] font-black text-slate-400 uppercase">{l.user}</p>
-                                     <p className="text-[8px] text-slate-300 font-mono">{l.timestamp}</p>
-                                  </div>
-                               </div>
-                             ))}
-                          </div>
-                       </div>
-                    </div>
-
                     {/* Muro de Comentarios */}
                     <div className="space-y-6">
                        <h4 className="text-[10px] font-black uppercase text-slate-400 tracking-widest flex items-center gap-2"><MessageSquare size={16} className="text-teal-600"/> Muro de Colaboración</h4>
@@ -1565,6 +1465,301 @@ export default function App() {
            </div>
         </div>
       )}
+
+      {/* Modal de Reactivación (Nuevo) */}
+      {isReactivationModalOpen && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xl z-[250] flex items-center justify-center p-6 animate-in zoom-in duration-300">
+              <div className="w-full max-w-2xl bg-white rounded-[40px] shadow-2xl p-10 border border-slate-200">
+                  <div className="flex justify-between items-center mb-8">
+                     <div>
+                        <h3 className="text-2xl font-black italic text-slate-900 uppercase tracking-tighter">Reactivar ODT</h3>
+                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Definir nuevos parámetros de flujo</p>
+                     </div>
+                     <button onClick={() => setIsReactivationModalOpen(false)} className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-slate-50 text-slate-400 hover:text-pink-500 transition-colors">✕</button>
+                  </div>
+
+                  <form onSubmit={handleReactivationSubmit} className="space-y-6">
+                      <div className="grid grid-cols-2 gap-6">
+                          <div className="space-y-2">
+                              <label className="text-[10px] font-black uppercase text-slate-400 pl-2">Retomar en Etapa</label>
+                              <div className="relative">
+                                  <Layers className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                                  <select 
+                                      required
+                                      value={reactivationData.stage}
+                                      onChange={(e) => setReactivationData({...reactivationData, stage: e.target.value})}
+                                      className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-4 pl-12 pr-4 text-xs font-bold uppercase outline-none focus:border-teal-500 transition-all appearance-none"
+                                  >
+                                      <option value="">Seleccionar...</option>
+                                      <option value="Cuentas">Cuentas</option>
+                                      {selectedProject?.areas_seleccionadas.map(area => (
+                                          <option key={area} value={area}>{area}</option>
+                                      ))}
+                                      <option value="Corrección">Corrección</option>
+                                      <option value="Cuentas (Cierre)">Cuentas (Cierre)</option>
+                                  </select>
+                              </div>
+                          </div>
+                          
+                          <div className="space-y-2">
+                              <label className="text-[10px] font-black uppercase text-slate-400 pl-2">Nueva Fecha Entrega</label>
+                              <div className="relative">
+                                  <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                                  <input 
+                                      type="date"
+                                      required
+                                      value={reactivationData.newDate}
+                                      onChange={(e) => setReactivationData({...reactivationData, newDate: e.target.value})}
+                                      className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-4 pl-12 pr-4 text-xs font-bold outline-none focus:border-teal-500 transition-all"
+                                  />
+                              </div>
+                          </div>
+                      </div>
+
+                      <div className="space-y-2">
+                          <div className="flex justify-between items-end">
+                              <label className="text-[10px] font-black uppercase text-slate-400 pl-2">Instrucciones de Reactivación</label>
+                              <span className="text-[9px] text-teal-600 font-bold bg-teal-50 px-2 py-0.5 rounded">Soporta HTML/Excel</span>
+                          </div>
+                          <div 
+                              ref={reactivationBriefRef}
+                              contentEditable
+                              className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-xs text-slate-700 outline-none overflow-y-auto custom-scrollbar min-h-[120px] focus:bg-white focus:border-teal-300 transition-colors"
+                              style={{ whiteSpace: 'pre-wrap' }}
+                              onPaste={() => {}} // Permitir pegado nativo
+                          />
+                          <p className="text-[9px] text-slate-400 italic pl-2">Describe por qué se reactiva y qué cambios se requieren.</p>
+                      </div>
+
+                      <button type="submit" className="w-full py-5 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl text-[10px] font-black uppercase shadow-xl hover:shadow-2xl transition-all flex items-center justify-center gap-2">
+                          <RefreshCw size={16}/> Confirmar Reactivación
+                      </button>
+                  </form>
+              </div>
+          </div>
+      )}
+
+      {/* NUEVO Modal de Cancelación */}
+      {isCancelModalOpen && (
+          <div className="fixed inset-0 bg-pink-900/60 backdrop-blur-xl z-[300] flex items-center justify-center p-6 animate-in zoom-in duration-300">
+              <div className="w-full max-w-lg bg-white rounded-[40px] shadow-2xl p-10 border border-slate-200">
+                  <div className="flex justify-between items-center mb-6">
+                     <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-pink-100 text-pink-600 rounded-full flex items-center justify-center"><Ban size={20}/></div>
+                        <div>
+                           <h3 className="text-2xl font-black italic text-slate-900 uppercase tracking-tighter">Cancelar ODT</h3>
+                           <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Esta acción es irreversible</p>
+                        </div>
+                     </div>
+                     <button onClick={() => setIsCancelModalOpen(false)} className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-slate-50 text-slate-400 hover:text-pink-500 transition-colors">✕</button>
+                  </div>
+
+                  <div className="space-y-6">
+                      <div className="space-y-2">
+                          <label className="text-[10px] font-black uppercase text-pink-500 pl-2">Motivo de Cancelación (Obligatorio)</label>
+                          <textarea 
+                              value={cancellationReason}
+                              onChange={(e) => setCancellationReason(e.target.value)}
+                              className="w-full bg-pink-50 border border-pink-100 rounded-3xl p-6 text-xs font-bold text-slate-800 outline-none focus:border-pink-300 focus:bg-white transition-all min-h-[120px] placeholder-pink-200"
+                              placeholder="Describe detalladamente por qué se cancela este proyecto..."
+                          />
+                      </div>
+
+                      <div className="flex gap-4">
+                          <button onClick={() => setIsCancelModalOpen(false)} className="flex-1 py-4 bg-slate-50 text-slate-500 hover:bg-slate-100 rounded-2xl text-[10px] font-black uppercase transition-all">
+                              Volver
+                          </button>
+                          <button 
+                              onClick={confirmCancellation}
+                              disabled={!cancellationReason.trim()}
+                              className="flex-1 py-4 bg-pink-600 disabled:bg-pink-300 text-white rounded-2xl text-[10px] font-black uppercase shadow-xl hover:shadow-pink-500/30 transition-all flex items-center justify-center gap-2"
+                          >
+                              <Ban size={16}/> Confirmar Cancelación
+                          </button>
+                      </div>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* NUEVO Modal ODT Dinámico */}
+      {isModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-2xl z-[200] flex items-center justify-center p-6 animate-in zoom-in duration-300">
+          <div className="w-full max-w-5xl bg-white rounded-[60px] shadow-2xl p-10 border border-slate-200 overflow-y-auto max-h-[90vh]">
+             <div className="flex justify-between items-center mb-8">
+                <h3 className="text-3xl font-black italic text-slate-900 uppercase tracking-tighter leading-none">Nueva ODT</h3>
+                <button onClick={() => setIsModalOpen(false)} className="text-2xl hover:text-pink-500 transition-colors">✕</button>
+             </div>
+             
+             <form onSubmit={handleCreateODT} className="grid grid-cols-1 lg:grid-cols-2 gap-10">
+                {/* Columna Izquierda: Datos Principales */}
+                <div className="space-y-5">
+                   <div className="grid grid-cols-2 gap-4">
+                      <Input label="ID ODT" name="id_odt" required placeholder="Ej: ODT-5501" />
+                      <Input label="Fecha Entrega" name="fecha" type="date" required />
+                   </div>
+                   <Input label="Laboratorio" name="empresa" required placeholder="Ej: Bayer" />
+                   <div className="grid grid-cols-2 gap-4">
+                      <Input label="Marca" name="marca" required placeholder="Ej: Aspirina" />
+                      <Input label="Producto / Campaña" name="producto" required placeholder="Q3 Launch" />
+                   </div>
+
+                   {/* Categorización Condicional */}
+                   <div className="p-5 bg-slate-50 rounded-3xl border border-slate-100 space-y-4">
+                      <label className="text-[10px] font-black text-slate-400 uppercase">Categorización de Material</label>
+                      <div className="grid grid-cols-2 gap-4">
+                         <select 
+                            value={formType} 
+                            onChange={e => { setFormType(e.target.value); setFormSubType(''); }} 
+                            className="bg-white border border-slate-200 rounded-2xl p-3 text-xs font-bold uppercase outline-none"
+                            required
+                         >
+                            <option value="">Seleccionar Tipo...</option>
+                            {Object.keys(typeOptions).map(t => <option key={t} value={t}>{t}</option>)}
+                         </select>
+
+                         {typeOptions[formType]?.length > 0 && (
+                             <select 
+                                value={formSubType}
+                                onChange={e => setFormSubType(e.target.value)}
+                                className="bg-white border border-slate-200 rounded-2xl p-3 text-xs font-bold uppercase outline-none animate-in fade-in"
+                                required
+                             >
+                                <option value="">Seleccionar Subtipo...</option>
+                                {typeOptions[formType].map(st => <option key={st} value={st}>{st}</option>)}
+                             </select>
+                         )}
+                      </div>
+                      {formSubType === 'Otro' && (
+                          <input type="text" name="otro_tipo" placeholder="Especificar..." className="w-full bg-white border border-slate-200 rounded-2xl p-3 text-xs font-bold outline-none" />
+                      )}
+                   </div>
+
+                   {/* Facturación */}
+                   <div className="p-5 bg-indigo-50/50 rounded-3xl border border-indigo-100 space-y-3">
+                      <div className="flex items-center justify-between">
+                         <label className="text-[10px] font-black text-indigo-400 uppercase">¿Se Factura?</label>
+                         <div className="flex gap-2">
+                            <button type="button" onClick={() => setIsBilling(true)} className={`px-4 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all ${isBilling ? 'bg-indigo-600 text-white' : 'bg-white text-indigo-300'}`}>SÍ</button>
+                            <button type="button" onClick={() => setIsBilling(false)} className={`px-4 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all ${!isBilling ? 'bg-indigo-600 text-white' : 'bg-white text-indigo-300'}`}>NO</button>
+                         </div>
+                      </div>
+                      {isBilling ? (
+                         <div className="relative">
+                            <input name="costo" type="number" required placeholder="Monto Cotizado (MXN)" min="0" className="w-full bg-white border border-indigo-100 rounded-2xl p-3 pl-8 text-sm font-bold text-slate-800 outline-none" />
+                            <span className="absolute left-3 top-3 text-slate-400 font-bold">$</span>
+                         </div>
+                      ) : (
+                         <input name="justificacion" type="text" required placeholder="Justificación obligatoria..." className="w-full bg-white border border-red-100 rounded-2xl p-3 text-xs font-bold text-red-500 outline-none placeholder-red-200" />
+                      )}
+                   </div>
+                </div>
+
+                {/* Columna Derecha: Áreas y Rich Text */}
+                <div className="space-y-6 flex flex-col h-full">
+                   <div>
+                       <h4 className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-3">Áreas Participantes (Multiselección)</h4>
+                       <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto custom-scrollbar pr-2">
+                          {productionAreas.map(area => (
+                            <div 
+                              key={area} 
+                              onClick={() => setSelectedAreas(prev => prev.includes(area) ? prev.filter(a => a !== area) : [...prev, area])}
+                              className={`p-3 rounded-xl border transition-all cursor-pointer flex items-center justify-between ${selectedAreas.includes(area) ? 'bg-teal-600 border-teal-600 text-white' : 'bg-slate-50 border-slate-100 text-slate-500 hover:bg-white'}`}
+                            >
+                               <span className="text-[9px] font-black uppercase">{area}</span>
+                               {selectedAreas.includes(area) && <CheckCircle2 size={12}/>}
+                            </div>
+                          ))}
+                       </div>
+                   </div>
+
+                   <div className="flex-1 flex flex-col">
+                       <div className="flex justify-between items-end mb-2">
+                          <label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Brief / Materiales</label>
+                          <span className="text-[9px] text-teal-600 font-bold bg-teal-50 px-2 py-0.5 rounded">Soporta Tablas Excel</span>
+                       </div>
+                       <div 
+                          ref={briefRef}
+                          contentEditable
+                          className="flex-1 w-full bg-slate-50 border border-slate-200 rounded-3xl p-4 text-xs text-slate-700 outline-none overflow-y-auto custom-scrollbar min-h-[150px] focus:bg-white focus:border-teal-300 transition-colors"
+                          style={{ whiteSpace: 'pre-wrap' }}
+                          onPaste={(e) => {
+                             // Permitir pegado normal, el navegador maneja las tablas HTML
+                             // Solo prevenimos pegado de scripts maliciosos si fuera necesario
+                          }}
+                       />
+                       <p className="text-[8px] text-slate-400 mt-2 italic text-right">* Pega aquí tablas directamente desde Excel o Word.</p>
+                   </div>
+
+                   <button type="submit" className="w-full py-6 bg-slate-800 text-white font-black rounded-[24px] uppercase shadow-xl hover:bg-teal-600 transition-all flex items-center justify-center gap-2">
+                       <Plus size={18}/> Crear ODT
+                   </button>
+                </div>
+             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Usuario (Sin cambios) */}
+      {isUserModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-2xl z-[200] flex items-center justify-center p-6 animate-in zoom-in duration-300">
+           <div className="w-full max-w-lg bg-white rounded-[40px] shadow-2xl p-10 border border-slate-200">
+              <h3 className="text-2xl font-black italic uppercase tracking-tighter mb-8 text-slate-900">Crear Acceso</h3>
+              <form onSubmit={handleCreateUser} className="space-y-6">
+                 <Input label="Nombre Completo" name="name" required placeholder="Ej: Juan Pérez" />
+                 <Input label="Usuario (Login)" name="username" required placeholder="Ej: j.perez" />
+                 <Input label="Contraseña" name="password" type="password" required placeholder="••••••••" />
+                 <div className="grid grid-cols-2 gap-6">
+                    <div className="flex flex-col gap-2">
+                      <label className="text-[10px] font-black uppercase text-slate-400 pl-4">Rol / Área</label>
+                      <select name="role" className="bg-slate-50 border border-slate-200 rounded-2xl p-4 text-xs font-bold text-slate-900 outline-none">
+                         {['Admin', 'Cuentas', 'Creativos', 'Médicos', 'Diseño', 'Tráfico', 'Audio y Video', 'Digital', 'Corrección', 'Cuentas (Cierre)', 'Administración'].map(r => <option key={r} value={r}>{r}</option>)}
+                      </select>
+                    </div>
+                    <div className="flex items-center gap-3 pt-6 pl-4">
+                       <input type="checkbox" name="isLeader" id="isLeader" className="w-5 h-5 rounded border-slate-300 text-teal-600 focus:ring-teal-500" />
+                       <label htmlFor="isLeader" className="text-[10px] font-black text-slate-600 uppercase">Es Líder</label>
+                    </div>
+                 </div>
+                 <div className="flex gap-4 pt-4">
+                    <button type="button" onClick={() => setIsUserModalOpen(false)} className="flex-1 py-4 bg-slate-50 text-slate-500 rounded-2xl text-[10px] font-black uppercase hover:bg-slate-100">Cancelar</button>
+                    <button type="submit" className="flex-1 py-4 bg-slate-800 text-white rounded-2xl text-[10px] font-black uppercase hover:bg-teal-600 shadow-xl">Guardar Usuario</button>
+                 </div>
+              </form>
+           </div>
+        </div>
+      )}
+
+      <style>{`
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 20px; }
+      `}</style>
+    </div>
+  );
+}
+
+function MenuBtn({ active, icon, label, onClick }: any) {
+  return (
+    <button onClick={onClick} className={`w-full flex items-center gap-4 px-6 py-4 rounded-[24px] transition-all ${active ? 'bg-slate-800 text-white font-black shadow-xl' : 'text-slate-400 hover:bg-slate-100 hover:text-teal-600'}`}>
+      {icon} <span className="text-[13px] font-bold">{label}</span>
+    </button>
+  );
+}
+
+function StatCard({ label, value, color, icon }: any) {
+  return (
+    <div className="bg-white border border-slate-200 p-8 rounded-[40px] flex items-center justify-between group hover:border-teal-200 transition-all">
+      <div><p className="text-[10px] font-black text-slate-400 uppercase mb-2 italic">{label}</p><p className="text-4xl font-black italic tracking-tighter" style={{ color }}>{value}</p></div>
+      <div className="p-4 rounded-2xl bg-slate-50" style={{ color }}>{icon}</div>
+    </div>
+  );
+}
+
+function Input({ label, ...props }: any) {
+  return (
+    <div className="w-full">
+      <label className="text-[10px] font-black text-slate-400 uppercase block mb-2 pl-4">{label}</label>
+      <input {...props} className="w-full bg-slate-50 border border-slate-100 rounded-2xl px-6 py-4 text-sm font-bold text-slate-900 outline-none shadow-sm" />
     </div>
   );
 }
