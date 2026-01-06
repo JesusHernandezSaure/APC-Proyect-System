@@ -528,13 +528,22 @@ export default function App() {
 
   const handleCreateODT = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+
+    const formData = new FormData(e.currentTarget);
+    const newId = formData.get('id_odt') as string;
+
+    // VALIDACIÓN DE UNICIDAD DE ID
+    if (projects.some(p => p.id === newId)) {
+        alert("❌ ERROR: El ID ODT ya existe en el sistema. Por favor verifica el consecutivo.");
+        return;
+    }
+
     if (selectedAreas.length === 0) return alert("Selecciona al menos una área participante.");
     
     // Validar brief rich text
     const briefContent = briefRef.current?.innerHTML;
     if (!briefContent || briefContent === '<br>') return alert("El brief de materiales no puede estar vacío.");
 
-    const formData = new FormData(e.currentTarget);
     
     // Iniciar el tracking para el área inicial (Cuentas)
     const initialTracking: TrackingLog[] = [
@@ -548,7 +557,7 @@ export default function App() {
         : [];
 
     const newODT: Project = {
-      id: formData.get('id_odt') as string, // ID Manual como solicitado
+      id: newId, 
       empresa: formData.get('empresa') as string,
       marca: formData.get('marca') as string,
       producto: formData.get('producto') as string,
@@ -1002,7 +1011,7 @@ export default function App() {
           </div>
           {['Admin', 'Cuentas'].includes(currentUser.role) && view !== 'usuarios' && view !== 'historico' && <button onClick={() => setIsModalOpen(true)} className="h-11 px-6 bg-teal-600 hover:bg-teal-700 text-white font-black text-xs rounded-xl shadow-lg transition-all">+ NUEVA ODT</button>}
           {view === 'usuarios' && <button onClick={() => setIsUserModalOpen(true)} className="h-11 px-6 bg-slate-800 text-white font-black text-xs rounded-xl shadow-lg flex items-center gap-2"><UserPlus size={16}/> NUEVO USUARIO</button>}
-          {view === 'historico' && (
+          {view === 'historico' && (currentUser.role === 'Admin' || (currentUser.role === 'Cuentas' && currentUser.isLeader)) && (
             <button onClick={handleExportCSV} className="h-11 px-6 bg-slate-800 text-white font-black text-xs rounded-xl shadow-lg flex items-center gap-2 hover:bg-teal-600 transition-all">
                 <Download size={16}/> DESCARGAR REPORTE GLOBAL
             </button>
