@@ -107,16 +107,17 @@ type UserRole =
   | 'Admin' 
   | 'Cuentas' 
   | 'Creativos' 
-  | 'Medical MKT'
-  | 'Medical Content'
+  | 'Médicos' 
   | 'Diseño' 
   | 'Tráfico' 
   | 'Audio y Video' 
   | 'Digital' 
-  | 'Innovación';
   | 'Corrección' 
   | 'Cuentas (Cierre)' 
   | 'Administración'
+  | 'Medical MKT'
+  | 'Medical Content'
+  | 'Innovación';
 
 interface User {
   id: string;
