@@ -284,7 +284,24 @@ export default function App() {
     'Innovación', 
     'Administración'
   ];
-
+// Lista centralizada de roles (usar en todos los selects/referencias)
+const ROLE_OPTIONS: UserRole[] = [
+  'Admin',
+  'Cuentas',
+  'Creativos',
+  'Médicos',
+  'Diseño',
+  'Tráfico',
+  'Audio y Video',
+  'Digital',
+  'Corrección',
+  'Cuentas (Cierre)',
+  'Administración',
+  'Medical MKT',
+  'Medical Content',
+  'Innovación'
+];
+  
   const typeOptions: Record<string, string[]> = {
     'DIGITAL': ['Mailing', 'Approved email Veeva', 'AV Veeva', 'AV IQVIA', 'AV (otra plataforma)', 'Video 1920x1080', 'Video 1080x1920 (vertical)', 'Posteo', 'GIF', 'Otro'],
     'IMPRESO': ['AV', 'Folleto', 'Brochure', 'Díptico', 'Tríptico', 'Tarjetón', 'Roll up', 'Tent card', 'Otro'],
@@ -1713,7 +1730,7 @@ export default function App() {
                     <div className="flex flex-col gap-2">
                       <label className="text-[10px] font-black uppercase text-slate-400 pl-4">Rol / Área</label>
                       <select name="role" className="bg-slate-50 border border-slate-200 rounded-2xl p-4 text-xs font-bold text-slate-900 outline-none">
-                         {['Admin', 'Cuentas', 'Creativos', 'Médicos', 'Diseño', 'Tráfico', 'Audio y Video', 'Digital', 'Corrección', 'Cuentas (Cierre)', 'Administración'].map(r => <option key={r} value={r}>{r}</option>)}
+                      {ROLE_OPTIONS.map(r => <option key={r} value={r}>{r}</option>)}
                       </select>
                     </div>
                     <div className="flex items-center gap-3 pt-6 pl-4">
